@@ -552,33 +552,39 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
   };
 
 
-// !! កែសម្រួល !!: Component សម្រាប់ QR Scanner Modal (កែ Logic)
-const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
+// !! កែសម្រួល !!: Component សម្រាប់ QR Scanner Modal (កែ Logic ឱ្យឆ្លាត)
+const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo }) => {
   const [errorMessage, setErrorMessage] = useState(null);
   
   const html5QrCodeRef = React.useRef(null);
-  const scannerStoppedRef = React.useRef(false); 
+  const scannerStoppedRef = React.useRef(false);
+  
+  // !! ថ្មី !!: Ref សម្រាប់ Cooldown (ការពារការ Scan ស្ទួន)
+  const isProcessingScan = React.useRef(false);
 
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
       scannerStoppedRef.current = false; 
+      isProcessingScan.current = false; // Reset cooldown
       const scannerId = "qr-reader"; 
       
       const html5QrCode = new Html5Qrcode(scannerId);
       html5QrCodeRef.current = html5QrCode; 
       
       const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-        if (scannerStoppedRef.current) return; 
-        scannerStoppedRef.current = true; 
+        // បើកំពុងដំណើរការ Scan មុន, មិនអើពើ Scan ថ្មី
+        if (isProcessingScan.current) return; 
         
-        html5QrCode.stop().then(() => {
-          console.log("Scanner stopped on success.");
-          onScanSuccess(decodedText);
-        }).catch(err => {
-          console.error("Error stopping scanner after success:", err);
-          onScanSuccess(decodedText);
-        });
+        isProcessingScan.current = true; // ចាប់ផ្តើម Cooldown
+        
+        // ហៅ Logic គោល (នៅក្នុង App.jsx)
+        onScanSuccess(decodedText);
+        
+        // បញ្ចប់ Cooldown បន្ទាប់ពី 2 វិនាទី
+        setTimeout(() => {
+          isProcessingScan.current = false;
+        }, 2000); 
       };
       
       const config = { fps: 10, qrbox: { width: 250, height: 250 } };
@@ -604,9 +610,7 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
         html5QrCodeRef.current = null;
       };
     }
-    
-    // !! កែសម្រួល !!: ដក onScanSuccess ចេញពី dependency array
-  }, [isOpen]); 
+  }, [isOpen]); // កុំដាក់ onScanSuccess នៅទីនេះ
 
   if (!isOpen) return null;
 
@@ -632,9 +636,25 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
         
         <div id="qr-reader" className="w-full"></div>
         
-        {errorMessage && (
-          <p className="text-red-500 text-center mt-4">{errorMessage}</p>
-        )}
+        {/* !! ថ្មី !!: បង្ហាញលទ្ធផលស្កេន (Realtime) */}
+        <div className="mt-4 text-center h-12">
+          {errorMessage && (
+            <p className="text-red-500 text-lg font-bold">{errorMessage}</p>
+          )}
+          
+          {lastScannedInfo && lastScannedInfo.status === 'success' && (
+            <p className="text-green-600 text-xl font-bold animate-pulse">
+              ✔ ស្កេនបាន: {lastScannedInfo.name}
+            </p>
+          )}
+          
+          {lastScannedInfo && lastScannedInfo.status === 'fail' && (
+            <p className="text-red-600 text-xl font-bold">
+              ✖ {lastScannedInfo.message}
+            </p>
+          )}
+        </div>
+        
       </div>
     </div>
   );
