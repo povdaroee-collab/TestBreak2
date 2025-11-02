@@ -349,8 +349,6 @@ const PassesInfoPage = ({ passesInUse, totalPasses, onEditTotal }) => {
     );
 };
 
-// ... (PasswordConfirmationModal, AdminActionModal, CompletedListHeader, LoadingSpinner, DeleteConfirmationModal)...
-// (សូមដាក់ Components ទាំងអស់របស់អ្នកនៅទីនេះ)
 const PasswordConfirmationModal = ({ prompt, onSubmit, onCancel }) => {
   if (!prompt.isOpen) return null;
   
@@ -561,7 +559,7 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
   };
 
 
-// !! ថ្មី !!: Component សម្រាប់ QR Scanner Modal (កែ Logic)
+// !! កែសម្រួល !!: Component សម្រាប់ QR Scanner Modal (កែ Logic)
 const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
   const [errorMessage, setErrorMessage] = useState(null);
   
@@ -619,8 +617,7 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
         html5QrCodeRef.current = null;
       };
     }
-    // យើងមិនបាច់ដាក់ dependencies ច្រើនទេ ព្រោះយើងគ្រប់គ្រង state ដោយ Refs
-  }, [isOpen]); 
+  }, [isOpen, onScanSuccess]); 
 
   if (!isOpen) return null;
 
@@ -654,13 +651,11 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
     </div>
   );
 };
-// ... (កូដ QrScannerModal របស់អ្នក) ...
 
 // !! ថ្មី !!: Component សម្រាប់ Info Alert
 const InfoAlertModal = ({ alertInfo, onClose }) => {
   if (!alertInfo.isOpen) return null;
   
-  // ពិនិត្យមើលប្រភេទ Alert
   const isError = alertInfo.type === 'error';
   
   return (
@@ -672,14 +667,12 @@ const InfoAlertModal = ({ alertInfo, onClose }) => {
         className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-6 text-center"
         onClick={(e) => e.stopPropagation()} 
       >
-        {/* ប្រើ Icon ផ្អែកលើប្រភេទ Alert */}
         {isError ? <IconAlert /> : <IconCheckCircleFill />}
         
         <h3 className="text-2xl font-bold text-gray-900 mb-2">
           {isError ? "មានបញ្ហា" : "បានជោគជ័យ"}
         </h3>
         
-        {/* ប្រើ whiteSpace: 'pre-line' ដើម្បីឱ្យ \n ដំណើរការ (ដូចរូប Alert ទី១) */}
         <p className="text-gray-600 mb-6" style={{ whiteSpace: 'pre-line' }}>
           {alertInfo.message}
         </p>
@@ -695,11 +688,10 @@ const InfoAlertModal = ({ alertInfo, onClose }) => {
   );
 };
 
-// !! ថ្មី !!: Component សម្រាប់ Input Prompt (ដូចរូប Alert ទី២)
+// !! ថ្មី !!: Component សម្រាប់ Input Prompt
 const InputPromptModal = ({ promptInfo, onSubmit, onCancel }) => {
   if (!promptInfo.isOpen) return null;
   
-  // State ផ្ទៃក្នុងសម្រាប់ផ្ទុកតម្លៃ Input
   const [value, setValue] = useState(promptInfo.defaultValue || "");
   
   const handleSubmit = (e) => {
@@ -724,7 +716,7 @@ const InputPromptModal = ({ promptInfo, onSubmit, onCancel }) => {
         
         <form onSubmit={handleSubmit}>
           <input 
-            type="number" // សម្រាប់បញ្ចូលតែលេខ
+            type="number"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-lg"
