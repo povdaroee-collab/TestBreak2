@@ -654,3 +654,99 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
     </div>
   );
 };
+// ... (កូដ QrScannerModal របស់អ្នក) ...
+
+// !! ថ្មី !!: Component សម្រាប់ Info Alert
+const InfoAlertModal = ({ alertInfo, onClose }) => {
+  if (!alertInfo.isOpen) return null;
+  
+  // ពិនិត្យមើលប្រភេទ Alert
+  const isError = alertInfo.type === 'error';
+  
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+      onClick={onClose} 
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-6 text-center"
+        onClick={(e) => e.stopPropagation()} 
+      >
+        {/* ប្រើ Icon ផ្អែកលើប្រភេទ Alert */}
+        {isError ? <IconAlert /> : <IconCheckCircleFill />}
+        
+        <h3 className="text-2xl font-bold text-gray-900 mb-2">
+          {isError ? "មានបញ្ហា" : "បានជោគជ័យ"}
+        </h3>
+        
+        {/* ប្រើ whiteSpace: 'pre-line' ដើម្បីឱ្យ \n ដំណើរការ (ដូចរូប Alert ទី១) */}
+        <p className="text-gray-600 mb-6" style={{ whiteSpace: 'pre-line' }}>
+          {alertInfo.message}
+        </p>
+        
+        <button
+          onClick={onClose}
+          className="w-full px-8 py-3 rounded-full text-white bg-blue-500 hover:bg-blue-600 font-bold"
+        >
+          យល់ព្រម (OK)
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// !! ថ្មី !!: Component សម្រាប់ Input Prompt (ដូចរូប Alert ទី២)
+const InputPromptModal = ({ promptInfo, onSubmit, onCancel }) => {
+  if (!promptInfo.isOpen) return null;
+  
+  // State ផ្ទៃក្នុងសម្រាប់ផ្ទុកតម្លៃ Input
+  const [value, setValue] = useState(promptInfo.defaultValue || "");
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit(value);
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-6 text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <IconPencilSquare />
+        <h3 className="text-2xl font-bold text-gray-900 mb-2">
+          {promptInfo.title}
+        </h3>
+        <p className="text-gray-600 mb-4">{promptInfo.message}</p>
+        
+        <form onSubmit={handleSubmit}>
+          <input 
+            type="number" // សម្រាប់បញ្ចូលតែលេខ
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-lg"
+            autoFocus
+          />
+          <div className="flex justify-center space-x-4 mt-6">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-6 py-3 rounded-full text-gray-700 bg-gray-200 hover:bg-gray-300 font-bold"
+            >
+              បោះបង់ (Cancel)
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-3 rounded-full text-white bg-blue-500 hover:bg-blue-600 font-bold"
+            >
+              យល់ព្រម (OK)
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
