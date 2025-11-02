@@ -240,10 +240,10 @@ function App() {
     const usedPassNumbers = sortedStudentsOnBreak.map(b => b.record.passNumber).filter(Boolean);
     let nextPassNumber = null;
     for (let i = 1; i <= totalPasses; i++) {
-      const passNum = 'DD_' + String(i).padStart(2, '0');
+      const passNum = 'DD_' + String(i).padStart(3, '0'); // !! កែពី 2 ទៅ 3 !!
       if (!usedPassNumbers.includes(passNum)) {
         nextPassNumber = passNum;
-        break; // រកឃើញលេខកាត
+        break; 
       }
     }
     
