@@ -208,7 +208,7 @@ const CompletedStudentListCard = ({ student, record, onClick, isSelected, onSele
         
         {isOvertime && (
           <p className="text-sm font-semibold text-red-300">
-            (លើស {overtimeMins} នាទី)
+            (លើស ${overtimeMins} នាទី)
           </p>
         )}
         {record.breakType === 'special' && (
@@ -552,58 +552,67 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
   };
 
 
-// !! កែសម្រួល !!: Component សម្រាប់ QR Scanner Modal (Logic Cooldown ថ្មី)
-const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo, isScannerBusy }) => { // 1. ទទួល Prop ថ្មី
+// !! កែសម្រួល !!: Component សម្រាប់ QR Scanner Modal (Logic Stop/Start ថ្មី)
+const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo, isScannerBusy }) => { 
   const [errorMessage, setErrorMessage] = useState(null);
   
   const html5QrCodeRef = React.useRef(null);
-  const scannerStoppedRef = React.useRef(false);
-  
-  // !! លុប !!: លុប isProcessingScan.current ចេញ
+  const scannerId = "qr-reader"; // ID ថេរ
 
   useEffect(() => {
+    
+    // 1. បើក Modal
     if (isOpen) {
       setErrorMessage(null);
-      scannerStoppedRef.current = false; 
-      const scannerId = "qr-reader"; 
       
-      const html5QrCode = new Html5Qrcode(scannerId);
-      html5QrCodeRef.current = html5QrCode; 
-      
-      const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-        // !! កែសម្រួល !!: ប្រើ isScannerBusy ពី App.jsx
-        if (isScannerBusy) return; 
+      // 2. បើ Scanner មិន Busy (កំពុងរង់ចាំ Scan) -> ចាប់ផ្តើម (Start)
+      if (!isScannerBusy) {
         
-        // ហៅ Logic គោល (នៅក្នុង App.jsx)
-        onScanSuccess(decodedText);
+        // បង្កើត Instance ថ្មីរាល់ពេល Start 
+        const html5QrCode = new Html5Qrcode(scannerId);
+        html5QrCodeRef.current = html5QrCode;
         
-        // !! លុប !!: លុប setTimeout Cooldown ចេញ
-      };
-      
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+          // ពេល Scan បាន, ហៅ App.jsx តែម្ដង
+          // App.jsx នឹង set isScannerBusy=true
+          onScanSuccess(decodedText);
+        };
+        
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-      html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
-        .catch(err => {
-          console.error("Unable to start scanner", err);
-          setErrorMessage("មិនអាចបើកកាមេរ៉ាបាន។ សូមអនុញ្ញាត (Allow) កាមេរ៉ា។");
-          scannerStoppedRef.current = true;
-        });
+        html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
+          .catch(err => {
+            console.error("Unable to start scanner", err);
+            setErrorMessage("មិនអាចបើកកាមេរ៉ាបាន។");
+          });
+      }
       
-      return () => {
-        if (html5QrCodeRef.current && !scannerStoppedRef.current) {
-          scannerStoppedRef.current = true; 
-          html5QrCodeRef.current.stop()
-            .then(res => {
-              console.log("QR Scanner stopped by cleanup (onClose).");
-            })
-            .catch(err => {
-              console.warn("QR Scanner stop error (on cleanup)", err);
-            });
-        }
+    // 3. បិទ Modal (isOpen = false) ឬ Scanner កំពុង Busy (isScannerBusy = true)
+    } else {
+      // ត្រូវប្រាកដថា Scanner ត្រូវបានបិទ (Stop)
+      if (html5QrCodeRef.current) {
+        html5QrCodeRef.current.stop()
+          .then(res => {
+            console.log("QR Scanner stopped.");
+          })
+          .catch(err => {
+            console.warn("QR Scanner stop error (probably already stopped).", err);
+          });
         html5QrCodeRef.current = null;
-      };
+      }
     }
-  }, [isOpen]); // ដំណើរការតែពេល isOpen ផ្លាស់ប្តូរ
+    
+    // Cleanup function (ពេលបិទ Modal)
+    return () => {
+      if (html5QrCodeRef.current) {
+        html5QrCodeRef.current.stop()
+          .catch(err => { /* មិនអីទេ បើ Stop រួចហើយ */ });
+        html5QrCodeRef.current = null;
+      }
+    };
+    
+  // 4. ឱ្យ Effect នេះ ដំណើរការរាល់ពេល isOpen ឬ isScannerBusy ផ្លាស់ប្តូរ
+  }, [isOpen, isScannerBusy]); 
 
   if (!isOpen) return null;
 
@@ -627,9 +636,9 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo, isSca
           ស្កេនកាតចូលវិញ
         </h3>
         
-        <div id="qr-reader" className="w-full"></div>
+        {/* ត្រូវតែមាន ID នេះ សម្រាប់ Library ដំណើរការ */}
+        <div id={scannerId} className="w-full"></div> 
         
-        {/* !! ថ្មី !!: បង្ហាញ Loading ពេល isScannerBusy = true */}
         <div className="mt-4 text-center h-12">
           {isScannerBusy && (
              <div className="flex justify-center items-center">
@@ -660,7 +669,8 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo, isSca
   );
 };
 
-// !! ថ្មី !!: Component សម្រាប់ Info Alert
+// ... (InfoAlertModal, InputPromptModal) ...
+// (សូមដាក់កូដ Modals ទាំងពីរនៅទីនេះ)
 const InfoAlertModal = ({ alertInfo, onClose }) => {
   if (!alertInfo.isOpen) return null;
   
@@ -696,7 +706,6 @@ const InfoAlertModal = ({ alertInfo, onClose }) => {
   );
 };
 
-// !! ថ្មី !!: Component សម្រាប់ Input Prompt
 const InputPromptModal = ({ promptInfo, onSubmit, onCancel }) => {
   if (!promptInfo.isOpen) return null;
   
