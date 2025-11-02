@@ -753,7 +753,9 @@ function App() {
                     onClick={() => !isSelectionMode && null} 
                     isSelected={selectedRecords.includes(record.id)}
                     onSelect={() => handleRecordSelect(record.id)}
-                    onDeleteClick={(e) => handleOpenPasswordModal(`លុប Record របស់ (${student.name})?`, () => handleConfirmDelete_Single(record.id))}}
+                    // !! កែត្រង់នេះ !!: បន្ថែម } នៅខាងចុង
+                    onDeleteClick={(e) => handleOpenPasswordModal(`លុប Record របស់ (${student.name})?`, () => handleConfirmDelete_Single(record.id))}
+                    
                     isSelectionMode={isSelectionMode}
                   />
                 ))
