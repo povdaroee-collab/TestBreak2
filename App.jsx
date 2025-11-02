@@ -26,26 +26,27 @@ function App() {
   
   const [passwordPrompt, setPasswordPrompt] = useState({ isOpen: false });
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedRecords, setSelectedRecords] = useState([]); // Array of record IDs
+  const [selectedRecords, setSelectedRecords] = useState([]);
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [bulkDeleteMode, setBulkDeleteMode] = useState(null); // 'day' or 'month'
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(null);
   const [bulkDeleteDate, setBulkDeleteDate] = useState(getTodayLocalDateString());
   const [bulkDeleteMonth, setBulkDeleteMonth] = useState(getTodayLocalMonthString());
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   
-  const [recordToDelete, setRecordToDelete] = useState(null); // { student, record }
+  const [recordToDelete, setRecordToDelete] = useState(null);
 
+  // States សម្រាប់ចំនួនកាត
   const [totalPasses, setTotalPasses] = useState(0); 
+
+  // !! ថ្មី !!: States សម្រាប់ QR Scanner ឆ្លាតវៃ
   const [showQrScanner, setShowQrScanner] = useState(false);
+  const [isScannerBusy, setIsScannerBusy] = useState(false); // គ្រប់គ្រងការ Stop/Start
+  const [lastScannedInfo, setLastScannedInfo] = useState(null); // បង្ហាញ Success/Fail
+  const [scannerTriggeredCheckIn, setScannerTriggeredCheckIn] = useState(null); // ចាំ Check-in
 
+  // States សម្រាប់ Modals ស្អាតៗ
   const [infoAlert, setInfoAlert] = useState({ isOpen: false, message: '', type: 'info' });
-  const [inputPrompt, setInputPrompt] = useState({ isOpen: false, title: '', message: '', defaultValue: '', onSubmit: null, onCancel: null });
-
-  const [lastScannedInModal, setLastScannedInModal] = useState(null);
-  
-  // !! ថ្មី !!: State សម្រាប់ចងចាំ Scan ជោគជ័យ (ដើម្បីដោះស្រាយបញ្ហា Scan ស្ទួន)
-  const [lastSuccessfulScannedPass, setLastSuccessfulScannedPass] = useState(null);
-
+  const [inputPrompt, setInputPrompt] = useState({ isOpen: false });
 
   // --- មុខងារ TTS ---
   const speak = (text) => {
@@ -90,11 +91,7 @@ function App() {
           setDbRead(dbInstanceRead); 
         } catch (error) {
           console.error('Read App Auth Error:', error);
-          if (error.code === 'auth/configuration-not-found') {
-            setAuthError("!!! ERROR: សូមបើក 'Anonymous' Sign-in នៅក្នុង Firebase Project 'dilistname' (App អាន)។");
-          } else {
-            setAuthError(`Read Auth Error: ${error.message}`);
-          }
+          setAuthError(`Read Auth Error: ${error.message}`);
         }
         
         onAuthStateChanged(authInstanceWrite, async (user) => {
@@ -107,11 +104,7 @@ function App() {
               await signInAnonymously(authInstanceWrite);
             } catch (authError) {
               console.error('Write App Auth Error:', authError);
-              if (authError.code === 'auth/configuration-not-found') {
-                setAuthError("!!! ERROR: សូមចូលទៅ Firebase Project 'brakelist-5f07f' -> Authentication -> Sign-in method -> ហើយចុចបើក 'Anonymous' provider។");
-              } else {
-                setAuthError(`Write Auth Error: ${authError.message}`);
-              }
+              setAuthError(`Write Auth Error: ${authError.message}`);
             }
           }
         });
@@ -130,6 +123,7 @@ function App() {
     if (dbRead && dbWrite) {
       setLoading(true);
       
+      // 1. ទាញបញ្ជីឈ្មោះ (ពី dbRead)
       const studentsRef = ref(dbRead, 'students');
       const unsubscribeStudents = onValue(studentsRef, (snapshot) => {
           const studentsData = snapshot.val();
@@ -138,8 +132,7 @@ function App() {
             Object.keys(studentsData).forEach((key) => {
               const student = studentsData[key];
               studentList.push({
-                id: key, 
-                ...student,
+                id: key, ...student,
                 name: student.name || student.ឈ្មោះ,
                 idNumber: student.idNumber || student.អត្តលេខ,
                 photoUrl: student.photoUrl || student.រូបថត,
@@ -157,6 +150,7 @@ function App() {
           setLoading(false);
       });
 
+      // 2. ទាញទិន្នន័យវត្តមាន (ពី dbWrite)
       const attendanceRef = ref(dbWrite, 'attendance');
       const qAttendance = rtdbQuery(attendanceRef, orderByChild('date'), equalTo(todayString));
       const unsubscribeAttendance = onValue(qAttendance, (snapshot) => {
@@ -174,13 +168,14 @@ function App() {
           for (const studentId in attMap) {
             attMap[studentId].sort((a, b) => new Date(a.checkOutTime) - new Date(b.checkOutTime));
           }
-          setAttendance(attMap);
-          console.log("Attendance data fetched.");
+          setAttendance(attMap); // <--- !! ទីតាំងសំខាន់ !!
+          console.log("Attendance data fetched/updated.");
       }, (error) => {
           console.error('Attendance Fetch Error (dbWrite):', error);
           setAuthError(`Attendance Fetch Error: ${error.message}`);
       });
       
+      // 3. ទាញចំនួនកាតសរុប (ពី dbWrite)
       const passRef = ref(dbWrite, 'passManagement/totalPasses');
       const unsubscribePasses = onValue(passRef, (snapshot) => {
         const total = snapshot.val() || 0; 
@@ -199,12 +194,8 @@ function App() {
     }
   }, [dbRead, dbWrite, todayString]); 
 
-  // !! ថ្មី !!: Helper function សម្រាប់ហៅ Alert
-  const showAlert = (message, type = 'info') => {
-    setInfoAlert({ isOpen: true, message, type });
-  };
-  
   // --- Data Preparation for Render ---
+  // (ត្រូវគណនាទិន្នន័យនេះ មុនពេលប្រើក្នុង Functions)
   const sortedStudentsOnBreak = students
     .map(student => {
       const breaks = attendance[student.id] || [];
@@ -235,7 +226,47 @@ function App() {
   
   const selectedStudent = students.find(s => s.id === selectedStudentId);
   const studentsOnBreakCount = sortedStudentsOnBreak.length;
+  
+  
+  // !! ថ្មី !!: Effect សម្រាប់គ្រប់គ្រង Scanner បន្ទាប់ពី Firebase Update
+  useEffect(() => {
+    // 1. ពិនិត្យមើលថា តើការ Update នេះ គឺដោយសារ Scanner មែនទេ?
+    if (scannerTriggeredCheckIn) {
+      
+      // 2. គណនាចំនួនអ្នកសម្រាក *ថ្មី* (បន្ទាប់ពី attendance បាន update)
+      const newStudentsOnBreak = students
+        .map(student => {
+          const breaks = attendance[student.id] || [];
+          return breaks.find(r => r.checkOutTime && !r.checkInTime);
+        })
+        .filter(Boolean);
+      
+      const newCount = newStudentsOnBreak.length;
+      console.log(`Scanner triggered check-in. New break count: ${newCount}`);
+      
+      // 3. សម្រេចចិត្តថាត្រូវបិទ Modal ឬ បន្ត Scan
+      if (newCount === 0) {
+        // បើអស់អ្នកសម្រាក -> បិទ Modal
+        console.log("Last student checked in. Closing scanner.");
+        setShowQrScanner(false);
+        setCurrentPage('completed'); // ទៅទំព័រ "បានចូល"
+        setIsScannerBusy(false); // Reset
+        setScannerTriggeredCheckIn(null); // Reset
+        
+      } else {
+        // បើនៅសល់អ្នកសម្រាក -> បើកកាមេរ៉ាវិញ
+        console.log("Students still on break. Restarting scanner...");
+        setIsScannerBusy(false); // <--- នេះនឹងធ្វើឱ្យកាមេរ៉ាបើកវិញ
+        setScannerTriggeredCheckIn(null); // Reset
+      }
+    }
+  }, [attendance]); // <--- ដំណើរការរាល់ពេលទិន្នន័យ Firebase ផ្លាស់ប្តូរ
 
+
+  // --- Helper function សម្រាប់ហៅ Alert ---
+  const showAlert = (message, type = 'info') => {
+    setInfoAlert({ isOpen: true, message, type });
+  };
   
   // --- មុខងារសម្រាប់កត់ត្រា (ប្រើ dbWrite) ---
   
@@ -252,7 +283,7 @@ function App() {
     const usedPassNumbers = sortedStudentsOnBreak.map(b => b.record.passNumber).filter(Boolean);
     let nextPassNumber = null;
     for (let i = 1; i <= totalPasses; i++) {
-      const passNum = 'DD_' + String(i).padStart(2, '0'); 
+      const passNum = 'DD_' + String(i).padStart(2, '0'); // ប្រើ 2 ខ្ទង់ (DD_01)
       if (!usedPassNumbers.includes(passNum)) {
         nextPassNumber = passNum;
         break;
@@ -260,7 +291,7 @@ function App() {
     }
     
     if (!nextPassNumber) {
-      console.error("Logic Error: Pass count check passed but no available pass found.");
+      console.error("Logic Error: No available pass found.");
       setAuthError("!!! ERROR: មានបញ្ហាក្នុងការរកលេខកាតទំនេរ។");
       return;
     }
@@ -295,36 +326,47 @@ function App() {
     }
   };
   
-  // !! កែសម្រួល !!: បំបែក Logic Check-in ចេញ
-  const updateCheckInTime = async (activeBreak) => {
-      if (!dbWrite || !activeBreak) return false;
-      const docRef = ref(dbWrite, `attendance/${activeBreak.id}`);
-      try {
-        await update(docRef, { checkInTime: new Date().toISOString() });
-        return true; // ជោគជ័យ
-      } catch (error) {
-        console.error('Check-in Error (dbWrite):', error);
-        setAuthError(`Check-in Error: ${error.message}`);
-        return false; // បរាជ័យ
-      }
-  };
-
-  // !! ថ្មី !!: មុខងារ Check-in សម្រាប់ប៊ូតុងចុច (Manual)
-  const handleCheckIn_Manual = (studentId) => {
+  // !! កែសម្រួល !!: handleCheckIn ត្រូវតែជា Async
+  const handleCheckIn = async (studentId) => {
     const student = students.find(s => s.id === studentId);
-    if (!student) return;
+    if (!student || !dbWrite) {
+      console.error("Check-in Error: Student or DB not found.");
+      return;
+    }
+    
     const studentBreaks = attendance[studentId] || [];
     const activeBreak = studentBreaks.find(r => r.checkOutTime && !r.checkInTime);
     
-    if (activeBreak) {
-      speak(`${student.name || 'និស្សិត'} បានចូលមកវិញ`);
-      updateCheckInTime(activeBreak);
+    if (!activeBreak) {
+       console.error("Check-in Error: No active break found.");
+       return;
+    }
+    
+    speak(`${student.name || 'និស្សិត'} បានចូលមកវិញ`);
+        
+    const now = new Date();
+    const docId = activeBreak.id; 
+    const docRef = ref(dbWrite, `attendance/${docId}`);
+    try {
+      // មុខងារនេះ នឹង Trigger `onValue` របស់ `attendance`
+      await update(docRef, { 
+        checkInTime: now.toISOString(),
+      });
+      console.log(`Check-in update sent for ${student.name}`);
       
-      // Reset UI
+      // មិនត្រូវបិទ Modal ឬ set Page នៅទីនេះទេ (useEffect នឹងធ្វើវា)
+      
       setSearchTerm(''); 
       setSelectedStudentId(''); 
       setSearchResults([]); 
       setIsSearchFocused(false); 
+      
+    } catch (error) {
+      console.error('Check-in Error (dbWrite):', error);
+      setAuthError(`Check-in Error: ${error.message}`);
+      // បើបរាជ័យ, ត្រូវ Reset scanner
+      setIsScannerBusy(false); 
+      setScannerTriggeredCheckIn(null);
     }
   };
   
@@ -425,7 +467,7 @@ function App() {
       const attendanceRef = ref(dbWrite, 'attendance');
       const allDataSnapshot = await get(attendanceRef);
       if (!allDataSnapshot.exists()) {
-        console.log("No data to delete.");
+        showAlert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។", 'error');
         setIsBulkLoading(false);
         return;
       }
@@ -455,7 +497,6 @@ function App() {
       } else {
         showAlert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។", 'error');
       }
-      
     } catch (error) {
       console.error('Bulk Delete Error:', error);
       setAuthError(`Bulk Delete Error: ${error.message}`);
@@ -488,79 +529,44 @@ function App() {
             } else if (newTotalString) {
               showAlert("សូមបញ្ចូលតែตัวเลขប៉ុណ្ណោះ។", 'error');
             }
-            setInputPrompt({ ...inputPrompt, isOpen: false }); 
+            setInputPrompt({ isOpen: false }); 
           },
-          onCancel: () => setInputPrompt({ ...inputPrompt, isOpen: false })
+          onCancel: () => setInputPrompt({ isOpen: false })
         });
       }
     );
   };
   
-  // !! កែសម្រួល !!: Logic ស្កេន QR ឆ្លាតវៃ (ដោះស្រាយបញ្ហាទាំង២)
-  const handleCheckInByPassNumber = async (passNumber) => {
-    if (!passNumber) return;
-
-    // !! បញ្ហាទី 1 !!: ពិនិត្យមើល Scan ស្ទួន
-    // បើកាតនេះ ទើបតែ Scan ចូលជោគជ័យ, មិនអើពើ
-    if (passNumber === lastSuccessfulScannedPass) {
-      setLastScannedInModal({ 
-          name: passNumber, 
-          status: 'fail',
-          message: `${passNumber} បានចូលហើយ` 
-        });
-      return; // បញ្ឈប់
+  // !! កែសម្រួល !!: មុខងារ Check-in តាម QR (Logic ថ្មី)
+  const handleCheckInByPassNumber = (passNumber) => {
+    if (!passNumber || isScannerBusy) { // បើ Busy គឺមិនអោយ Scan ស្ទួន
+      return;
     }
-
-    // 1. រកអ្នកសម្រាក ពី State *បច្ចុប្បន្ន* (ដែល Firebase ទើប Update)
-    // យើងត្រូវហៅ sortedStudentsOnBreak ម្ដងទៀត ក្នុង Function នេះ
-    // ព្រោះ State ខាងក្រៅ អាចមិនទាន់ Update
-    const currentOnBreakList = students
-      .map(student => {
-        const breaks = attendance[student.id] || [];
-        return breaks.find(r => r.checkOutTime && !r.checkInTime);
-      })
-      .filter(Boolean);
-      
-    const activeBreak = currentOnBreakList.find(record => record.passNumber === passNumber);
+    
+    // 1. រកមើលអ្នកដែលកំពុងប្រើកាតនេះ (ពី State `attendance` បច្ចុប្បន្ន)
+    const activeBreak = sortedStudentsOnBreak.find(b => b.record.passNumber === passNumber);
     
     if (activeBreak) {
-      // 2. បើរកឃើញ (Success)
-      const student = students.find(s => s.id === activeBreak.studentId);
-      const studentName = student ? student.name : 'និស្សិត';
+      // 2. បើរកឃើញ -> បញ្ឈប់កាមេរ៉ា (Busy) ហើយរៀបចំ Check-in
+      setIsScannerBusy(true); 
+      setScannerTriggeredCheckIn(activeBreak.student.id); // ចាំចាប់ Update
+      setLastScannedInfo({ status: 'success', name: activeBreak.student.name || 'និស្សិត' });
       
-      // 3. Update Firebase
-      const success = await updateCheckInTime(activeBreak);
+      // 3. ហៅ handleCheckIn (ដែលនឹង Update Firebase)
+      handleCheckIn(activeBreak.student.id);
       
-      if (success) {
-        speak(`${studentName} បានចូលមកវិញ`);
-        setLastScannedInModal({ name: studentName, status: 'success' });
-        setLastSuccessfulScannedPass(passNumber); // ចងចាំ Scan នេះ
-
-        // !! បញ្ហាទី 2 !!: ពិនិត្យ Auto-Close
-        // យើងពិនិត្យចំនួន *បច្ចុប្បន្ន*
-        const currentCount = currentOnBreakList.length;
-        if (currentCount === 1) {
-          // នេះគឺជាអ្នកចុងក្រោយ
-          setShowQrScanner(false);
-          setCurrentPage('completed'); // ទៅទំព័រ "បានចូល"
-        }
-        // បើ currentCount > 1, Modal នឹងនៅតែបើក
-        
-      } else {
-        // Firebase update បរាជ័យ
-        setLastScannedInModal({ name: passNumber, status: 'fail', message: `Update បរាជ័យ` });
-      }
-
     } else {
-      // 4. រកមិនឃើញ (Fail)
-      setLastScannedInModal({ 
-        name: passNumber, 
-        status: 'fail',
-        message: `រកមិនឃើញ ${passNumber}` 
-      });
-      // កំណត់ Scan ជោគជ័យចុងក្រោយទៅ null វិញ ក្រែងលោអ្នកចង់ស្កេនអ្នកដដែលម្ដងទៀត
-      setLastSuccessfulScannedPass(null); 
+      // 4. បើរកមិនឃើញ (ប្រហែល Scan រួចហើយ)
+      setLastScannedInfo({ status: 'fail', message: `កាត ${passNumber} បានចូលវិញហើយ` });
     }
+  };
+  
+  // !! ថ្មី !!: មុខងារសម្រាប់បើក QR Scanner
+  const handleOpenQrScanner = () => {
+    setLastScannedInfo(null);
+    setScannerTriggeredCheckIn(null);
+    setIsScannerBusy(false); // ត្រូវប្រាកដថាមិន Busy ពេលបើកដំបូង
+    setShowQrScanner(true);
   };
 
   
@@ -662,13 +668,9 @@ function App() {
               </span>
             </button>
             
-            {/* !! កែសម្រួល !!: ពេលចុច ត្រូវ Reset State ចាស់ */}
+            {/* !! ថ្មី !!: ប្រើ handleOpenQrScanner ពេលចុច */}
             <button
-              onClick={() => {
-                setLastScannedInModal(null); // Reset លទ្ធផលចាស់
-                setLastSuccessfulScannedPass(null); // !! ថ្មី !! Reset កាតដែល Scan ជោគជ័យ
-                setShowQrScanner(true);
-              }}
+              onClick={handleOpenQrScanner}
               className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative text-white`}
             >
               <span className="relative z-10 flex items-center">
@@ -679,7 +681,6 @@ function App() {
           </div>
 
           {/* --- CONTENT --- */}
-          
           {loading && <LoadingSpinner />}
           {authError && (
             <div className="mt-4 mb-4 text-center bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative max-w-md mx-auto" role="alert">
@@ -734,11 +735,11 @@ function App() {
                 <StudentCard 
                   student={selectedStudent} 
                   pageKey="search"
-                  passesInUse={studentsOnBreakCount} 
+                  passesInUse={studentsOnBreakCount}
                   attendance={attendance}
                   now={now}
                   handleCheckOut={handleCheckOut}
-                  handleCheckIn={handleCheckIn_Manual} // !! កែសម្រួល !!: ប្រើ Manual
+                  handleCheckIn={handleCheckIn}
                   onDeleteClick={handleOpenDeleteModal_Simple}
                   totalPasses={totalPasses}
                 />
@@ -760,7 +761,7 @@ function App() {
                     record={record}
                     elapsedMins={elapsedMins} 
                     isOvertime={isOvertime}
-                    onCheckIn={() => handleCheckIn_Manual(student.id)} // !! កែសម្រួល !!: ប្រើ Manual
+                    onCheckIn={() => handleCheckIn(student.id)} 
                     onDeleteClick={(e) => handleOpenDeleteModal_Simple(e, student, record)}
                   />
                 ))
@@ -830,7 +831,7 @@ function App() {
                 attendance={attendance}
                 now={now}
                 handleCheckOut={handleCheckOut}
-                handleCheckIn={handleCheckIn_Manual} // !! កែសម្រួល !!: ប្រើ Manual
+                handleCheckIn={handleCheckIn}
                 onDeleteClick={handleOpenDeleteModal_Simple}
                 totalPasses={totalPasses}
               />
@@ -868,22 +869,26 @@ function App() {
           setBulkDeleteMonth={setBulkDeleteMonth}
         />
         
+        {/* !! ថ្មី !!: Modal សម្រាប់ QR Scanner (បញ្ជូន Props ថ្មី) */}
         <QrScannerModal 
           isOpen={showQrScanner}
           onClose={() => setShowQrScanner(false)}
           onScanSuccess={handleCheckInByPassNumber}
-          lastScannedInfo={lastScannedInModal}
+          lastScannedInfo={lastScannedInfo}
+          isScannerBusy={isScannerBusy}
         />
         
+        {/* Modal សម្រាប់ Alert ស្អាតៗ */}
         <InfoAlertModal
           alertInfo={infoAlert}
           onClose={() => setInfoAlert({ isOpen: false })}
         />
         
+        {/* Modal សម្រាប់ Prompt ស្អាតៗ */}
         <InputPromptModal
           promptInfo={inputPrompt}
-          onCancel={() => inputPrompt.onCancel ? inputPrompt.onCancel() : setInputPrompt({ isOpen: false })}
-          onSubmit={(value) => inputPrompt.onSubmit ? inputPrompt.onSubmit(value) : setInputPrompt({ isOpen: false })}
+          onCancel={inputPrompt.onCancel} 
+          onSubmit={inputPrompt.onSubmit}
         />
         
       </div>
