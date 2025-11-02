@@ -677,7 +677,7 @@ function App() {
                             onMouseDown={() => handleSelectStudentFromList(student)}
                           >
                             <img
-                              src={student.photoUrl || `https:
+                              src={student.photoUrl || `https://placehold.co/40x40/EBF4FF/76A9FA?text=${student.name ? student.name.charAt(0) : 'N'}`}
                               className="w-10 h-10 rounded-full object-cover"
                             />
                             <div>
@@ -753,9 +753,7 @@ function App() {
                     onClick={() => !isSelectionMode && null} 
                     isSelected={selectedRecords.includes(record.id)}
                     onSelect={() => handleRecordSelect(record.id)}
-                    // !! កែត្រង់នេះ !!: បន្ថែម } នៅខាងចុង
                     onDeleteClick={(e) => handleOpenPasswordModal(`លុប Record របស់ (${student.name})?`, () => handleConfirmDelete_Single(record.id))}
-                    
                     isSelectionMode={isSelectionMode}
                   />
                 ))
@@ -862,3 +860,4 @@ function App() {
 const container = document.getElementById('root');
 const root = ReactDOM.createRoot(container);
 root.render(<App />);
+
