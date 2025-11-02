@@ -561,60 +561,80 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
   };
 
 
-// !! ថ្មី !!: Component សម្រាប់ QR Scanner Modal
+// !! ថ្មី !!: Component សម្រាប់ QR Scanner Modal (កែ Logic)
 const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
   const [errorMessage, setErrorMessage] = useState(null);
   
+  // !! ថ្មី !!: ប្រើ Refs ដើម្បីគ្រប់គ្រង instance និង state
+  const html5QrCodeRef = React.useRef(null);
+  const scannerStoppedRef = React.useRef(false); // Flag ដើម្បីតាមដាន
+
   useEffect(() => {
     if (isOpen) {
+      // Reset ពេលបើក Modal
       setErrorMessage(null);
-      // ត្រូវប្រាកដថា ID នេះមានក្នុង HTML
+      scannerStoppedRef.current = false; // Reset flag
       const scannerId = "qr-reader"; 
       
       const html5QrCode = new Html5Qrcode(scannerId);
+      html5QrCodeRef.current = html5QrCode; // រក្សាទុក instance
+      
       const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-        // decodedText គឺជាអ្វីដែល QR Code មាន (ឧ. 'DD_01')
+        if (scannerStoppedRef.current) return; // បើ Stop រួចហើយ, កុំធ្វើអ្វី
+        
+        scannerStoppedRef.current = true; // Set flag ថា Stop ហើយ
+        
         html5QrCode.stop().then(() => {
+          console.log("Scanner stopped on success.");
           onScanSuccess(decodedText);
-        }).catch(err => console.error("Error stopping scanner", err));
+        }).catch(err => {
+          console.error("Error stopping scanner after success:", err);
+          onScanSuccess(decodedText); // ហៅដដែល បើ stop fail
+        });
       };
       
       const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-      // ចាប់ផ្តើមស្កេន
       html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
         .catch(err => {
           console.error("Unable to start scanner", err);
           setErrorMessage("មិនអាចបើកកាមេរ៉ាបាន។ សូមអនុញ្ញាត (Allow) កាមេរ៉ា។");
+          scannerStoppedRef.current = true; // បើ Start មិនបាន, មិនចាំបាច់ Stop ទេ
         });
       
-      // Cleanup function
+      // Cleanup function (ពេលបិទ Modal)
       return () => {
-        // ត្រូវប្រាកដថា .stop() ត្រូវបានហៅ
-        html5QrCode.stop()
-          .then(res => {
-            console.log("QR Scanner stopped.");
-          })
-          .catch(err => {
-            console.warn("QR Scanner stop error, probably already stopped.", err);
-          });
+        // ពិនិត្យមើល instance និង flag
+        // បើ user ចុចបិទ (X) ដោយមិនបាន Scan, flag នឹង false
+        if (html5QrCodeRef.current && !scannerStoppedRef.current) {
+          scannerStoppedRef.current = true; // Set flag
+          html5QrCodeRef.current.stop()
+            .then(res => {
+              console.log("QR Scanner stopped by cleanup (onClose).");
+            })
+            .catch(err => {
+              console.warn("QR Scanner stop error (on cleanup)", err);
+            });
+        }
+        html5QrCodeRef.current = null;
       };
     }
-  }, [isOpen, onScanSuccess]);
+    // យើងមិនបាច់ដាក់ dependencies ច្រើនទេ ព្រោះយើងគ្រប់គ្រង state ដោយ Refs
+  }, [isOpen]); 
 
   if (!isOpen) return null;
 
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
-      onClick={onClose}
+      onClick={onClose} // ហៅ onClose ពេលចុចក្រៅ
     >
       <div 
         className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button 
-          onClick={onClose}
+          onClick={onClose} // ហៅ onClose ពេលចុចប៊ូតុង X
           className="absolute top-4 right-4 text-gray-800 bg-gray-200 p-2 rounded-full z-10"
         >
           <IconClose />
