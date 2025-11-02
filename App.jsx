@@ -26,14 +26,18 @@ function App() {
   
   const [passwordPrompt, setPasswordPrompt] = useState({ isOpen: false });
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedRecords, setSelectedRecords] = useState([]); // Array of record IDs
+  const [selectedRecords, setSelectedRecords] = useState([]);
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [bulkDeleteMode, setBulkDeleteMode] = useState(null); // 'day' or 'month'
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(null);
   const [bulkDeleteDate, setBulkDeleteDate] = useState(getTodayLocalDateString());
   const [bulkDeleteMonth, setBulkDeleteMonth] = useState(getTodayLocalMonthString());
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   
-  const [recordToDelete, setRecordToDelete] = useState(null); // { student, record }
+  const [recordToDelete, setRecordToDelete] = useState(null);
+
+  // !! ថ្មី !!: State សម្រាប់ចំនួនកាត និង QR Scanner
+  const [totalPasses, setTotalPasses] = useState(0); // នឹងទាញពី Firebase
+  const [showQrScanner, setShowQrScanner] = useState(false);
 
   // --- មុខងារ TTS ---
   const speak = (text) => {
@@ -78,11 +82,7 @@ function App() {
           setDbRead(dbInstanceRead); 
         } catch (error) {
           console.error('Read App Auth Error:', error);
-          if (error.code === 'auth/configuration-not-found') {
-            setAuthError("!!! ERROR: សូមបើក 'Anonymous' Sign-in នៅក្នុង Firebase Project 'dilistname' (App អាន)។");
-          } else {
-            setAuthError(`Read Auth Error: ${error.message}`);
-          }
+          setAuthError(`Read Auth Error: ${error.message}`);
         }
         
         onAuthStateChanged(authInstanceWrite, async (user) => {
@@ -95,11 +95,7 @@ function App() {
               await signInAnonymously(authInstanceWrite);
             } catch (authError) {
               console.error('Write App Auth Error:', authError);
-              if (authError.code === 'auth/configuration-not-found') {
-                setAuthError("!!! ERROR: សូមចូលទៅ Firebase Project 'brakelist-5f07f' -> Authentication -> Sign-in method -> ហើយចុចបើក 'Anonymous' provider។");
-              } else {
-                setAuthError(`Write Auth Error: ${authError.message}`);
-              }
+              setAuthError(`Write Auth Error: ${authError.message}`);
             }
           }
         });
@@ -117,20 +113,17 @@ function App() {
   useEffect(() => {
     if (dbRead && dbWrite) {
       setLoading(true);
-      let studentLoading = true;
       
+      // 1. ទាញបញ្ជីឈ្មោះ (ពី dbRead)
       const studentsRef = ref(dbRead, 'students');
-      const unsubscribeStudents = onValue(
-        studentsRef,
-        (snapshot) => {
+      const unsubscribeStudents = onValue(studentsRef, (snapshot) => {
           const studentsData = snapshot.val();
           const studentList = [];
           if (studentsData) {
             Object.keys(studentsData).forEach((key) => {
               const student = studentsData[key];
               studentList.push({
-                id: key, 
-                ...student,
+                id: key, ...student,
                 name: student.name || student.ឈ្មោះ,
                 idNumber: student.idNumber || student.អត្តលេខ,
                 photoUrl: student.photoUrl || student.រូបថត,
@@ -140,31 +133,18 @@ function App() {
           }
           studentList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
           setStudents(studentList);
-          console.log("Student list fetched successfully from 'dilistname'.");
-          studentLoading = false;
+          console.log("Student list fetched.");
           setLoading(false); 
-        },
-        (error) => {
-          console.error('Student Fetch Error (RTDB - dbRead):', error);
-          if (error.code === 'PERMISSION_DENIED') {
-             setAuthError("!!! ERROR: 'dilistname' permission denied. សូមពិនិត្យ Security Rules របស់ 'dilistname' ឲ្យអនុញ្ញាតអាន (read) path '/students' (Rule ត្រូវជា 'auth != null')។");
-          } else {
-             setAuthError(`Student Fetch Error: ${error.message}`);
-          }
-          studentLoading = false;
+      }, (error) => {
+          console.error('Student Fetch Error (dbRead):', error);
+          setAuthError(`Student Fetch Error: ${error.message}`);
           setLoading(false);
-        },
-      );
+      });
 
+      // 2. ទាញទិន្នន័យវត្តមាន (ពី dbWrite)
       const attendanceRef = ref(dbWrite, 'attendance');
-      const qAttendance = rtdbQuery(
-        attendanceRef,
-        orderByChild('date'),
-        equalTo(todayString),
-      );
-      const unsubscribeAttendance = onValue(
-        qAttendance,
-        (snapshot) => {
+      const qAttendance = rtdbQuery(attendanceRef, orderByChild('date'), equalTo(todayString));
+      const unsubscribeAttendance = onValue(qAttendance, (snapshot) => {
           const attMap = {};
           const attData = snapshot.val();
           if (attData) {
@@ -180,70 +160,109 @@ function App() {
             attMap[studentId].sort((a, b) => new Date(a.checkOutTime) - new Date(b.checkOutTime));
           }
           setAttendance(attMap);
-          console.log("Attendance data (as array map) fetched successfully from 'brakelist'.");
-        },
-        (error) => {
-          console.error('Attendance Fetch Error (RTDB - dbWrite):', error);
-          if (error.code === 'PERMISSION_DENIED') {
-            setAuthError("!!! ERROR: 'brakelist-5f07f' permission denied. សូមពិនិត្យ Security Rules របស់ 'brakelist-5f07f' ឲ្យអនុញ្ញាតអាន (read) path '/attendance'។");
-          } else {
-            setAuthError(`Attendance Fetch Error: ${error.message}`);
-          }
-        },
-      );
+          console.log("Attendance data fetched.");
+      }, (error) => {
+          console.error('Attendance Fetch Error (dbWrite):', error);
+          setAuthError(`Attendance Fetch Error: ${error.message}`);
+      });
+      
+      // !! ថ្មី !!: 3. ទាញចំនួនកាតសរុប (ពី dbWrite)
+      const passRef = ref(dbWrite, 'passManagement/totalPasses');
+      const unsubscribePasses = onValue(passRef, (snapshot) => {
+        const total = snapshot.val() || 0; // បើមិនទាន់មាន, ឲ្យ 0
+        setTotalPasses(total);
+        console.log(`Total passes set to: ${total}`);
+      }, (error) => {
+        console.error('Total Passes Fetch Error (dbWrite):', error);
+        setAuthError(`Total Passes Fetch Error: ${error.message}`);
+      });
       
       return () => {
         unsubscribeStudents();
         unsubscribeAttendance();
+        unsubscribePasses(); // !! ថ្មី !!
       };
     }
   }, [dbRead, dbWrite, todayString]); 
 
   // --- ត្រង (Filter) និស្សិត (ប្រើក្នុង Render) ---
-  const studentsOnBreak = students.filter(student => {
+  // (sortedStudentsOnBreak ឥឡូវត្រូវย้ายចុះក្រោម ព្រោះវាត្រូវការព័ត៌មានថ្មី)
+  
+  // --- Data Preparation for Render ---
+  // !! កែសម្រួល !!: ត្រូវរៀបចំទិន្នន័យនេះก่อน
+  const sortedStudentsOnBreak = students
+    .map(student => {
+      const breaks = attendance[student.id] || [];
+      const activeBreak = breaks.find(r => r.checkOutTime && !r.checkInTime);
+      if (!activeBreak) return null; 
+      const elapsedMins = calculateDuration(activeBreak.checkOutTime, now.toISOString()); 
+      const isOvertime = elapsedMins > OVERTIME_LIMIT_MINUTES; 
+      return { student, record: activeBreak, elapsedMins, isOvertime };
+    })
+    .filter(Boolean) 
+    .sort((a, b) => {
+      if (a.isOvertime !== b.isOvertime) {
+        return a.isOvertime ? -1 : 1;
+      }
+      return b.elapsedMins - a.elapsedMins;
+    });
+
+  const allCompletedBreaks = [];
+  students.forEach(student => {
     const breaks = attendance[student.id] || [];
-    return breaks.some(r => r.checkOutTime && !r.checkInTime); 
+    breaks.forEach(record => {
+      if (record.checkInTime && record.checkOutTime) {
+        allCompletedBreaks.push({ student, record });
+      }
+    });
   });
+  allCompletedBreaks.sort((a, b) => new Date(b.record.checkInTime) - new Date(a.record.checkInTime));
+  
+  const selectedStudent = students.find(s => s.id === selectedStudentId);
+  const studentsOnBreakCount = sortedStudentsOnBreak.length; // ប្រើចំនួននេះ
+
   
   // --- មុខងារសម្រាប់កត់ត្រា (ប្រើ dbWrite) ---
   
+  // !! កែសម្រួល !!: ត្រូវកែ Logic Check Out ទាំងស្រុង
   const handleCheckOut = async (studentId) => {
     const student = students.find(s => s.id === studentId);
-    if (!student) {
-      console.error("Check-out Error: Student not found for ID:", studentId);
-      return;
-    }
+    if (!student || !dbWrite) return;
         
-    if (!dbWrite) {
-        console.error("Check-out Error: dbWrite is not initialized."); 
-        return; 
-    }
-    
-    const passesInUse = studentsOnBreak.length;
-    if (passesInUse >= TOTAL_PASSES) {
-      setAuthError(`!!! ERROR: កាតចេញសម្រាកអស់ហើយ! (${passesInUse}/${TOTAL_PASSES})`);
+    // 1. ពិនិត្យមើលថាកាតនៅសល់ឬអត់
+    if (studentsOnBreakCount >= totalPasses) {
+      setAuthError(`!!! ERROR: កាតចេញសម្រាកអស់ហើយ! (${studentsOnBreakCount}/${totalPasses})`);
+      speak("កាតចេញសម្រាកអស់ហើយ");
       return; 
     }
     
-    speak(`${student.name || 'និស្សិត'} បានចេញក្រៅ`);
+    // 2. រកលេខកាតដែលទំនេរ
+    const usedPassNumbers = sortedStudentsOnBreak.map(b => b.record.passNumber).filter(Boolean);
+    let nextPassNumber = null;
+    for (let i = 1; i <= totalPasses; i++) {
+      const passNum = 'DD_' + String(i).padStart(2, '0');
+      if (!usedPassNumbers.includes(passNum)) {
+        nextPassNumber = passNum;
+        break; // រកឃើញលេខកាត
+      }
+    }
+    
+    if (!nextPassNumber) {
+      // នេះមិនគួរកើតឡើងទេ បើការ Check ខាងលើត្រឹមត្រូវ
+      console.error("Logic Error: Pass count check passed but no available pass found.");
+      setAuthError("!!! ERROR: មានបញ្ហាក្នុងការរកលេខកាតទំនេរ។");
+      return;
+    }
 
+    // 3. កំណត់ Break Type (Special Case)
     const now = new Date();
     const studentBreaks = attendance[studentId] || [];
     const completedBreaks = studentBreaks.filter(r => r.checkInTime && r.checkOutTime);
     const breakCount = completedBreaks.length;
+    let breakType = (breakCount >= 2) ? "special" : "normal";
     
-    let breakType = "normal"; 
-    
-    if (breakCount === 0) {
-      breakType = "normal";
-      console.log("Break 1 attempt.");
-    } else if (breakCount === 1) {
-      breakType = "normal";
-      console.log("Break 2 attempt.");
-    } else {
-      breakType = "special"; // ករណីពិសេស
-      console.log("Break 3+ (Special Case) attempt.");
-    }
+    // 4. រក្សាទុកទិន្នន័យ (រួមទាំងលេខកាត)
+    speak(`${student.name || 'និស្សិត'} បានចេញក្រៅ ដោយប្រើកាត ${nextPassNumber}`);
     
     const attendanceRef = ref(dbWrite, 'attendance');
     const newRecordRef = push(attendanceRef);
@@ -253,7 +272,8 @@ function App() {
         date: todayString,
         checkInTime: null,
         checkOutTime: now.toISOString(), 
-        breakType: breakType 
+        breakType: breakType,
+        passNumber: nextPassNumber // !! ថ្មី !!
       });
       
       setSearchTerm('');
@@ -261,35 +281,26 @@ function App() {
       setSearchResults([]); 
       setIsSearchFocused(false); 
     } catch (error) {
-      console.error('Check-out Error (RTDB - dbWrite):', error);
-      if (error.code === 'PERMISSION_DENIED') {
-         setAuthError("!!! ERROR: 'brakelist-5f07f' permission denied. សូមពិនិត្យ Security Rules របស់ 'brakelist-5f07f' ឲ្យអនុញ្ញាតសរសេរ (write) path '/attendance'។");
-      }
+      console.error('Check-out Error (dbWrite):', error);
+      setAuthError(`Check-out Error: ${error.message}`);
     }
   };
   
   const handleCheckIn = async (studentId) => {
     const student = students.find(s => s.id === studentId);
-    if (!student) {
-      console.error("Check-in Error: Student not found for ID:", studentId);
-      return;
-    }
-    
-    speak(`${student.name || 'និស្សិត'} បានចូលមកវិញ`);
-        
-    if (!dbWrite) {
-        console.error("Check-in Error: dbWrite is not initialized."); 
-        return;
-    }
+    if (!student || !dbWrite) return;
     
     const studentBreaks = attendance[studentId] || [];
     const activeBreak = studentBreaks.find(r => r.checkOutTime && !r.checkInTime);
     
     if (!activeBreak) {
-       console.error("Check-in Error: No active break found for this student.");
+       console.error("Check-in Error: No active break found.");
        return;
     }
-
+    
+    // ពេល Check-in លេខកាត (passNumber) នឹងទំនេរដោយស្វ័យប្រវត្តិ
+    speak(`${student.name || 'និស្សិត'} បានចូលមកវិញ`);
+        
     const now = new Date();
     const docId = activeBreak.id; 
     const docRef = ref(dbWrite, `attendance/${docId}`);
@@ -303,10 +314,8 @@ function App() {
       setSearchResults([]); 
       setIsSearchFocused(false); 
     } catch (error) {
-      console.error('Check-in Error (RTDB - dbWrite):', error);
-       if (error.code === 'PERMISSION_DENIED') {
-         setAuthError("!!! ERROR: 'brakelist-5f07f' permission denied. សូមពិនិត្យ Security Rules របស់ 'brakelist-5f07f' ឲ្យអនុញ្ញាតសរសេរ (write) path '/attendance'។");
-       }
+      console.error('Check-in Error (dbWrite):', error);
+      setAuthError(`Check-in Error: ${error.message}`);
     }
   };
   
@@ -335,6 +344,7 @@ function App() {
     }
   };
   
+  // -- 1. លុបតែមួយ (Single Delete) --
   const handleConfirmDelete_Single = async (recordId) => {
     if (!dbWrite) return;
     const docRef = ref(dbWrite, `attendance/${recordId}`);
@@ -342,11 +352,12 @@ function App() {
       await remove(docRef);
       console.log("Delete successful!");
     } catch (error) {
-      console.error('Delete Error (RTDB - dbWrite):', error);
+      console.error('Delete Error (dbWrite):', error);
       setAuthError(`Delete Error: ${error.message}`);
     }
   };
   
+  // -- 2. លុបច្រើន (Multi-Select) --
   const handleToggleSelectionMode = () => {
     setIsSelectionMode(prev => !prev);
     setSelectedRecords([]);
@@ -371,22 +382,21 @@ function App() {
 
   const handleConfirmDelete_Multi = async () => {
     if (!dbWrite || selectedRecords.length === 0) return;
-    
     const updates = {};
     selectedRecords.forEach(recordId => {
       updates[`/attendance/${recordId}`] = null;
     });
-    
     try {
       await update(ref(dbWrite), updates);
       console.log("Multi-delete successful!");
       handleToggleSelectionMode();
     } catch (error) {
-      console.error('Multi-Delete Error (RTDB - dbWrite):', error);
+      console.error('Multi-Delete Error (dbWrite):', error);
       setAuthError(`Multi-Delete Error: ${error.message}`);
     }
   };
   
+  // -- 3. លុបតាមថ្ងៃ/ខែ (Bulk Delete) --
   const handleOpenBulkDelete = (mode) => {
     setBulkDeleteMode(mode);
     setShowAdminModal(false);
@@ -408,7 +418,6 @@ function App() {
     try {
       const attendanceRef = ref(dbWrite, 'attendance');
       const allDataSnapshot = await get(attendanceRef);
-      
       if (!allDataSnapshot.exists()) {
         console.log("No data to delete.");
         setIsBulkLoading(false);
@@ -418,14 +427,12 @@ function App() {
       const allData = allDataSnapshot.val();
       const updates = {};
       let count = 0;
-
       const filterDate = mode === 'day' ? bulkDeleteDate : bulkDeleteMonth;
       
       Object.keys(allData).forEach(recordId => {
         const record = allData[recordId];
         if (record && record.date) {
           const recordDate = record.date;
-          
           if (mode === 'day' && recordDate === filterDate) {
             updates[`/attendance/${recordId}`] = null;
             count++;
@@ -438,13 +445,10 @@ function App() {
       
       if (count > 0) {
         await update(ref(dbWrite), updates);
-        console.log(`Successfully bulk-deleted ${count} records.`);
         alert(`លុប ${count} record បានជោគជ័យ!`);
       } else {
-        console.log("No matching records found to delete.");
         alert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។");
       }
-      
     } catch (error) {
       console.error('Bulk Delete Error:', error);
       setAuthError(`Bulk Delete Error: ${error.message}`);
@@ -454,15 +458,69 @@ function App() {
     }
   };
   
+  // !! ថ្មី !!: មុខងារកែចំនួនកាត (Req 1)
+  const handleEditTotalPasses = () => {
+    handleOpenPasswordModal(
+      "សូមបញ្ចូល Password ដើម្បីកែសម្រួលចំនួនកាតសរុប",
+      () => {
+        // ពេល Password ត្រឹមត្រូវ
+        const newTotalString = window.prompt("សូមបញ្ចូលចំនួនកាតសរុបថ្មី:", totalPasses);
+        const newTotal = parseInt(newTotalString);
+        
+        if (newTotalString && !isNaN(newTotal) && newTotal >= 0) {
+          // រក្សាទុកទៅ Firebase
+          const passRef = ref(dbWrite, 'passManagement/totalPasses');
+          set(passRef, newTotal)
+            .then(() => {
+              alert("ចំនួនកាតសរុបបានកែប្រែ!");
+            })
+            .catch(err => {
+              setAuthError(`Error setting total passes: ${err.message}`);
+            });
+        } else if (newTotalString) {
+          alert("សូមបញ្ចូលតែตัวเลขប៉ុណ្ណោះ។");
+        }
+      }
+    );
+  };
+  
+  // !! ថ្មី !!: មុខងារ Check-in តាម QR (Req 3)
+  const handleCheckInByPassNumber = (passNumber) => {
+    if (!passNumber) {
+      alert("QR Code មិនត្រឹមត្រូវ។");
+      return;
+    }
+    
+    // 1. រកមើលអ្នកដែលកំពុងប្រើកាតនេះ
+    const activeBreak = sortedStudentsOnBreak.find(b => b.record.passNumber === passNumber);
+    
+    if (activeBreak) {
+      // 2. បើរកឃើញ, ហៅ handleCheckIn
+      const studentName = activeBreak.student.name || 'និស្សិត';
+      console.log(`Scanning in ${studentName} with pass ${passNumber}`);
+      handleCheckIn(activeBreak.student.id);
+      
+      // បិទ Modal Scanner
+      setShowQrScanner(false);
+      
+      // ត្រឡប់ទៅទំព័រ 'កំពុងសម្រាក' ដើម្បីមើលលទ្ធផល
+      setCurrentPage('onBreak');
+      
+    } else {
+      // 3. បើរកមិនឃើញ
+      alert(`រកមិនឃើញអ្នកកំពុងប្រើកាត ${passNumber} ទេ។\nប្រហែលគាត់បានចូលវិញហើយ។`);
+      setShowQrScanner(false); // បិទ Modal តែរក្សាទុក Error
+    }
+  };
+
+  
   // --- Search Handlers ---
   
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchTerm(value);
     setSelectedStudentId(""); 
-
     const normalizedSearch = String(value).replace(/\s+/g, '').toLowerCase();
-
     if (normalizedSearch === "") {
       setSearchResults([]); 
     } else {
@@ -481,40 +539,6 @@ function App() {
     setIsSearchFocused(false); 
   };
 
-  // --- Data Preparation for Render ---
-  
-  const sortedStudentsOnBreak = studentsOnBreak
-    .map(student => {
-      const breaks = attendance[student.id] || [];
-      const activeBreak = breaks.find(r => r.checkOutTime && !r.checkInTime);
-      
-      if (!activeBreak) return null; 
-
-      const elapsedMins = calculateDuration(activeBreak.checkOutTime, now.toISOString()); 
-      const isOvertime = elapsedMins > OVERTIME_LIMIT_MINUTES; 
-      return { student, record: activeBreak, elapsedMins, isOvertime };
-    })
-    .filter(Boolean) 
-    .sort((a, b) => {
-      if (a.isOvertime !== b.isOvertime) {
-        return a.isOvertime ? -1 : 1;
-      }
-      return b.elapsedMins - a.elapsedMins;
-    });
-
-  const allCompletedBreaks = [];
-  students.forEach(student => {
-    const breaks = attendance[student.id] || [];
-    breaks.forEach(record => {
-      if (record.checkInTime && record.checkOutTime) {
-        allCompletedBreaks.push({ student, record });
-      }
-    });
-  });
-  allCompletedBreaks.sort((a, b) => new Date(b.record.checkInTime) - new Date(a.record.checkInTime));
-  
-  
-  const selectedStudent = students.find(s => s.id === selectedStudentId);
 
   // --- Main Render ---
   return (
@@ -525,9 +549,7 @@ function App() {
           <div 
             className={`transition-all duration-300 ease-in-out ${isSearchFocused ? '-translate-y-24' : 'translate-y-0'}`}
           >
-            <h1 
-              className="text-4xl font-bold text-center mb-2 text-white"
-            >
+            <h1 className="text-4xl font-bold text-center mb-2 text-white">
               កត់ត្រាម៉ោងសម្រាក
             </h1>
             <p className="text-xl text-center text-blue-200 mb-6">
@@ -535,34 +557,40 @@ function App() {
             </p>
           </div>
 
-          {/* --- TABS --- */}
+          {/* --- TABS (!! កែសម្រួល !!: បន្ថែម Tab ទី 5) --- */}
           <div className={`w-full max-w-md mx-auto bg-white/10 backdrop-blur-sm rounded-full p-1 flex space-x-1 mb-6 transition-all duration-300 ease-in-out ${isSearchFocused ? '-translate-y-24' : 'translate-y-0'}`}>
+            
+            {/* Tab 1: ស្វែងរក (កែទំហំ) */}
             <button
               onClick={() => setCurrentPage('search')}
-              className={`w-1/4 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
+              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
                 currentPage === 'search' ? 'bg-white text-blue-800 shadow-lg' : 'text-white'
               }`}
             >
               <span className="relative z-10 flex items-center"><IconSearch /></span>
             </button>
+            
+            {/* Tab 2: កំពុងសម្រាក (កែទំហំ) */}
             <button
               onClick={() => setCurrentPage('onBreak')}
-              className={`w-1/4 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
+              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
                 currentPage === 'onBreak' ? 'bg-white text-blue-800 shadow-lg' : 'text-white'
               }`}
             >
               <span className="relative z-10 flex items-center">
                 <IconClock />
-                {studentsOnBreak.length > 0 && (
+                {studentsOnBreakCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                    {studentsOnBreak.length}
+                    {studentsOnBreakCount}
                   </span>
                 )}
               </span>
             </button>
+            
+            {/* Tab 3: បានចូល (កែទំហំ) */}
             <button
               onClick={() => setCurrentPage('completed')}
-              className={`w-1/4 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
+              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
                 currentPage === 'completed' ? 'bg-white text-blue-800 shadow-lg' : 'text-white'
               }`}
             >
@@ -575,27 +603,33 @@ function App() {
                 )}
               </span>
             </button>
+            
+            {/* Tab 4: កាតចេញចូល (កែទំហំ) */}
             <button
               onClick={() => setCurrentPage('passes')}
-              className={`w-1/4 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
+              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
                 currentPage === 'passes' ? 'bg-white text-blue-800 shadow-lg' : 'text-white'
               }`}
             >
               <span className="relative z-10 flex items-center">
                 <IconTicket />
-                {studentsOnBreak.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                    {studentsOnBreak.length}
-                  </span>
-                )}
               </span>
             </button>
+            
+            {/* !! ថ្មី !!: Tab 5: ស្កេន QR */}
+            <button
+              onClick={() => setShowQrScanner(true)}
+              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative text-white`}
+            >
+              <span className="relative z-10 flex items-center">
+                <IconQrCode />
+              </span>
+            </button>
+            
           </div>
 
           {/* --- CONTENT --- */}
-          
           {loading && <LoadingSpinner />}
-
           {authError && (
             <div className="mt-4 mb-4 text-center bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative max-w-md mx-auto" role="alert">
               <strong className="font-bold">បញ្ហា!</strong>
@@ -616,17 +650,8 @@ function App() {
                       value={searchTerm}
                       onChange={handleSearchChange}
                       onFocus={() => { setIsSearchFocused(true); setAuthError(null); }}
-                      onBlur={() => {
-                        setTimeout(() => {
-                          if (!document.activeElement.classList.contains('search-result-button')) {
-                            setIsSearchFocused(false); 
-                            setSearchResults([]); 
-                          }
-                        }, 200); 
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { e.target.blur(); setIsSearchFocused(false); }
-                      }}
+                      onBlur={() => { setTimeout(() => { if (!document.activeElement.classList.contains('search-result-button')) { setIsSearchFocused(false); setSearchResults([]); } }, 200); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); setIsSearchFocused(false); } }}
                       placeholder="ស្វែងរកអត្តលេខ/ឈ្មោះ" 
                       className="block w-full px-6 py-4 bg-white/20 border border-white/30 rounded-full text-white text-lg placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white shadow-inner"
                     />
@@ -651,32 +676,24 @@ function App() {
                       </div>
                     )}
                   </div>
-                ) : (
-                  !authError && (
-                    <div className="flex flex-col justify-center items-center mt-4">
-                      <p className="text-gray-300 text-lg">មិនមានទិន្នន័យនិស្សិត...</p>
-                      <p className="text-gray-400 text-sm mt-2">(កំពុងព្យាយាមទាញពី `dilistname`...)</p>
-                    </div>
-                  )
-                )}
+                ) : ( !authError && <p className="text-gray-300 text-lg text-center">មិនមានទិន្នន័យនិស្សិត...</p> )}
               </div>
               
               {selectedStudent && (
                 <StudentCard 
                   student={selectedStudent} 
                   pageKey="search"
-                  passesInUse={studentsOnBreak.length} 
+                  passesInUse={studentsOnBreakCount} // !! កែសម្រួល !!
                   attendance={attendance}
                   now={now}
                   handleCheckOut={handleCheckOut}
                   handleCheckIn={handleCheckIn}
                   onDeleteClick={handleOpenDeleteModal_Simple}
+                  totalPasses={totalPasses} // !! ថ្មី !!
                 />
               )}
               {!selectedStudent && searchTerm !== "" && searchResults.length === 0 && isSearchFocused && (
-                <p className="text-center text-white/70 text-lg mt-10">
-                  រកមិនឃើញនិស្សិត...
-                </p>
+                <p className="text-center text-white/70 text-lg mt-10">រកមិនឃើញនិស្សិត...</p>
               )}
             </div>
           )}
@@ -699,7 +716,6 @@ function App() {
               ) : (
                 <div className="mt-16 text-center">
                   <p className="text-white text-2xl font-semibold">មិនមាននិស្សិតកំពុងសម្រាកទេ</p>
-                  <p className="text-blue-200 text-lg">ទំព័រនេះនឹងបង្ហាញនិស្សិតដែលបានចុច "ចេញសម្រាក"។</p>
                 </div>
               )}
             </div>
@@ -715,7 +731,6 @@ function App() {
                 selectionCount={selectedRecords.length}
                 isSelectionMode={isSelectionMode}
               />
-              
               {allCompletedBreaks.length > 0 ? (
                 allCompletedBreaks.map(({ student, record }) => (
                   <CompletedStudentListCard 
@@ -725,64 +740,50 @@ function App() {
                     onClick={() => !isSelectionMode && null} 
                     isSelected={selectedRecords.includes(record.id)}
                     onSelect={() => handleRecordSelect(record.id)}
-                    onDeleteClick={(e) => handleOpenPasswordModal(
-                      `លុប Record របស់ (${student.name})?`,
-                      () => handleConfirmDelete_Single(record.id)
-                    )}
+                    onDeleteClick={(e) => handleOpenPasswordModal(`លុប Record របស់ (${student.name})?`, () => handleConfirmDelete_Single(record.id))}
                     isSelectionMode={isSelectionMode}
                   />
                 ))
               ) : (
                 <div className="mt-16 text-center">
                   <p className="text-white text-2xl font-semibold">មិនមាននិស្សិតសម្រាករួចទេ</p>
-                  <p className="text-blue-200 text-lg">ទំព័រនេះនឹងបង្ហាញនិស្សិតដែលបាន "ចូលវិញ"។</p>
                 </div>
               )}
             </div>
           )}
           
-          {/* --- PAGE 4: កាតចេញចូល --- */}
+          {/* --- PAGE 4: កាតចេញចូល (!! កែសម្រួល !!) --- */}
           {!loading && currentPage === 'passes' && (
             <div key="passes-page" className="pb-10">
               <PassesInfoPage 
-                studentsOnBreakCount={studentsOnBreak.length} 
-                totalPasses={TOTAL_PASSES}
+                passesInUse={studentsOnBreakCount} 
+                totalPasses={totalPasses}
+                onEditTotal={handleEditTotalPasses} 
               />
             </div>
           )}
           
-          {/* --- FOOTER (រួម) --- */}
           {!loading && (
-             <p className="text-center text-xs text-blue-300 opacity-70 mt-8">
-               អភិវឌ្ឍន៍កម្មវិធី : IT SUPPORT
-             </p>
+             <p className="text-center text-xs text-blue-300 opacity-70 mt-8">អភិវឌ្ឍន៍កម្មវិធី : IT SUPPORT</p>
            )}
         </div>
         
         {/* --- MODALS --- */}
         {modalStudent && (
-          <div 
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
-            onClick={() => setModalStudent(null)} 
-          >
-            <div
-              className="w-full max-w-lg"
-              onClick={(e) => e.stopPropagation()} 
-            >
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md" onClick={() => setModalStudent(null)}>
+            <div className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
               <StudentCard 
                 student={modalStudent} 
                 pageKey="modal"
-                passesInUse={studentsOnBreak.length} 
+                passesInUse={studentsOnBreakCount} 
                 attendance={attendance}
                 now={now}
                 handleCheckOut={handleCheckOut}
                 handleCheckIn={handleCheckIn}
                 onDeleteClick={handleOpenDeleteModal_Simple}
+                totalPasses={totalPasses} // !! ថ្មី !!
               />
-              <button 
-                onClick={() => setModalStudent(null)}
-                className="absolute top-4 right-4 text-white bg-white/10 p-2 rounded-full transition-all hover:bg-white/30"
-              >
+              <button onClick={() => setModalStudent(null)} className="absolute top-4 right-4 text-white bg-white/10 p-2 rounded-full transition-all hover:bg-white/30">
                 <IconClose />
               </button>
             </div>
@@ -814,6 +815,13 @@ function App() {
           setBulkDeleteDate={setBulkDeleteDate}
           bulkDeleteMonth={bulkDeleteMonth}
           setBulkDeleteMonth={setBulkDeleteMonth}
+        />
+        
+        {/* !! ថ្មី !!: Modal សម្រាប់ QR Scanner */}
+        <QrScannerModal 
+          isOpen={showQrScanner}
+          onClose={() => setShowQrScanner(false)}
+          onScanSuccess={handleCheckInByPassNumber}
         />
         
       </div>
