@@ -14,14 +14,12 @@ const StudentCard = ({ student, pageKey, passesInUse, attendance, now, handleChe
   let canCheckOut = true;
   let isSpecialCase = false; 
   
-  // !! កែសម្រួល !!: ប្រើ totalPasses ពី State
   let passesAvailable = totalPasses - passesInUse;
   
   if (activeBreak) {
     const elapsedMins = calculateDuration(activeBreak.checkOutTime, now.toISOString());
     const isOvertime = elapsedMins > OVERTIME_LIMIT_MINUTES;
     
-    // !! កែសម្រួល !!: បង្ហាញលេខកាត
     const passNumberDisplay = activeBreak.passNumber ? ` (${activeBreak.passNumber})` : '';
     statusText = `កំពុងសម្រាក${passNumberDisplay} (${elapsedMins} នាទី)`; 
     
@@ -60,7 +58,6 @@ const StudentCard = ({ student, pageKey, passesInUse, attendance, now, handleChe
     canCheckOut = true;
   }
   
-  // !! កែសម្រួល !!: ប្រើ totalPasses ពី State
   if (passesAvailable <= 0 && canCheckOut) {
     canCheckOut = false; 
     statusText = `កាតអស់! (${passesInUse}/${totalPasses})`;
@@ -203,7 +200,6 @@ const CompletedStudentListCard = ({ student, record, onClick, isSelected, onSele
           ចេញ: {formatTime(record?.checkOutTime)} | ចូល: {formatTime(record?.checkInTime)}
         </p>
         
-        {/* !! កែសម្រួល !!: បង្ហាញលេខកាត */}
         {record.passNumber && (
           <p className="text-sm font-semibold text-cyan-300">
             (កាត: {record.passNumber})
@@ -272,7 +268,6 @@ const OnBreakStudentListCard = ({ student, record, elapsedMins, isOvertime, onCh
             </span>
           )}
         </p>
-        {/* !! កែសម្រួល !!: បង្ហាញលេខកាត */}
         <p className="text-sm text-blue-200">
           (កាត: {record.passNumber || '???'})
         </p>
@@ -304,7 +299,6 @@ const OnBreakStudentListCard = ({ student, record, elapsedMins, isOvertime, onCh
   );
 };
 
-// !! កែសម្រួល !!: Page នេះត្រូវកែប្រែទាំងស្រុង
 const PassesInfoPage = ({ passesInUse, totalPasses, onEditTotal }) => {
     const passesAvailable = totalPasses - passesInUse;
     
@@ -335,7 +329,6 @@ const PassesInfoPage = ({ passesInUse, totalPasses, onEditTotal }) => {
           </div>
         </div>
         
-        {/* !! ថ្មី !!: ប៊ូតុងកែសម្រួល */}
         <div className="mt-8 border-t border-white/20 pt-6">
           <button
             onClick={onEditTotal}
@@ -563,31 +556,28 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
 const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
   const [errorMessage, setErrorMessage] = useState(null);
   
-  // !! ថ្មី !!: ប្រើ Refs ដើម្បីគ្រប់គ្រង instance និង state
   const html5QrCodeRef = React.useRef(null);
-  const scannerStoppedRef = React.useRef(false); // Flag ដើម្បីតាមដាន
+  const scannerStoppedRef = React.useRef(false); 
 
   useEffect(() => {
     if (isOpen) {
-      // Reset ពេលបើក Modal
       setErrorMessage(null);
-      scannerStoppedRef.current = false; // Reset flag
+      scannerStoppedRef.current = false; 
       const scannerId = "qr-reader"; 
       
       const html5QrCode = new Html5Qrcode(scannerId);
-      html5QrCodeRef.current = html5QrCode; // រក្សាទុក instance
+      html5QrCodeRef.current = html5QrCode; 
       
       const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-        if (scannerStoppedRef.current) return; // បើ Stop រួចហើយ, កុំធ្វើអ្វី
-        
-        scannerStoppedRef.current = true; // Set flag ថា Stop ហើយ
+        if (scannerStoppedRef.current) return; 
+        scannerStoppedRef.current = true; 
         
         html5QrCode.stop().then(() => {
           console.log("Scanner stopped on success.");
           onScanSuccess(decodedText);
         }).catch(err => {
           console.error("Error stopping scanner after success:", err);
-          onScanSuccess(decodedText); // ហៅដដែល បើ stop fail
+          onScanSuccess(decodedText);
         });
       };
       
@@ -597,15 +587,12 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
         .catch(err => {
           console.error("Unable to start scanner", err);
           setErrorMessage("មិនអាចបើកកាមេរ៉ាបាន។ សូមអនុញ្ញាត (Allow) កាមេរ៉ា។");
-          scannerStoppedRef.current = true; // បើ Start មិនបាន, មិនចាំបាច់ Stop ទេ
+          scannerStoppedRef.current = true;
         });
       
-      // Cleanup function (ពេលបិទ Modal)
       return () => {
-        // ពិនិត្យមើល instance និង flag
-        // បើ user ចុចបិទ (X) ដោយមិនបាន Scan, flag នឹង false
         if (html5QrCodeRef.current && !scannerStoppedRef.current) {
-          scannerStoppedRef.current = true; // Set flag
+          scannerStoppedRef.current = true; 
           html5QrCodeRef.current.stop()
             .then(res => {
               console.log("QR Scanner stopped by cleanup (onClose).");
@@ -617,21 +604,23 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
         html5QrCodeRef.current = null;
       };
     }
-  }, [isOpen, onScanSuccess]); 
+    
+    // !! កែសម្រួល !!: ដក onScanSuccess ចេញពី dependency array
+  }, [isOpen]); 
 
   if (!isOpen) return null;
 
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
-      onClick={onClose} // ហៅ onClose ពេលចុចក្រៅ
+      onClick={onClose} 
     >
       <div 
         className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button 
-          onClick={onClose} // ហៅ onClose ពេលចុចប៊ូតុង X
+          onClick={onClose} 
           className="absolute top-4 right-4 text-gray-800 bg-gray-200 p-2 rounded-full z-10"
         >
           <IconClose />
@@ -641,7 +630,6 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
           ស្កេនកាតចូលវិញ
         </h3>
         
-        {/* ទីតាំងសម្រាប់បង្ហាញកាមេរ៉ា */}
         <div id="qr-reader" className="w-full"></div>
         
         {errorMessage && (
@@ -742,3 +730,4 @@ const InputPromptModal = ({ promptInfo, onSubmit, onCancel }) => {
     </div>
   );
 };
+
