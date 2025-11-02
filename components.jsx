@@ -2,7 +2,7 @@
 // 4. MAIN UI COMPONENTS
 // =================================================================
 
-const StudentCard = ({ student, pageKey, passesInUse, attendance, now, handleCheckOut, handleCheckIn, onDeleteClick }) => {
+const StudentCard = ({ student, pageKey, passesInUse, attendance, now, handleCheckOut, handleCheckIn, onDeleteClick, totalPasses }) => {
   
   const studentBreaks = attendance[student.id] || [];
   const activeBreak = studentBreaks.find(r => r.checkOutTime && !r.checkInTime);
@@ -14,12 +14,17 @@ const StudentCard = ({ student, pageKey, passesInUse, attendance, now, handleChe
   let canCheckOut = true;
   let isSpecialCase = false; 
   
-  let passesAvailable = TOTAL_PASSES - passesInUse;
+  // !! កែសម្រួល !!: ប្រើ totalPasses ពី State
+  let passesAvailable = totalPasses - passesInUse;
   
   if (activeBreak) {
     const elapsedMins = calculateDuration(activeBreak.checkOutTime, now.toISOString());
     const isOvertime = elapsedMins > OVERTIME_LIMIT_MINUTES;
-    statusText = `កំពុងសម្រាក (${elapsedMins} នាទី)`; 
+    
+    // !! កែសម្រួល !!: បង្ហាញលេខកាត
+    const passNumberDisplay = activeBreak.passNumber ? ` (${activeBreak.passNumber})` : '';
+    statusText = `កំពុងសម្រាក${passNumberDisplay} (${elapsedMins} នាទី)`; 
+    
     statusClass = isOvertime 
       ? 'bg-red-600 text-white animate-pulse' 
       : 'bg-yellow-500 text-white animate-pulse';
@@ -55,9 +60,10 @@ const StudentCard = ({ student, pageKey, passesInUse, attendance, now, handleChe
     canCheckOut = true;
   }
   
+  // !! កែសម្រួល !!: ប្រើ totalPasses ពី State
   if (passesAvailable <= 0 && canCheckOut) {
     canCheckOut = false; 
-    statusText = 'កាតអស់! (40/40)';
+    statusText = `កាតអស់! (${passesInUse}/${totalPasses})`;
     statusClass = 'bg-red-600 text-white';
   }
   
@@ -196,6 +202,14 @@ const CompletedStudentListCard = ({ student, record, onClick, isSelected, onSele
         <p className="text-sm text-blue-200">
           ចេញ: {formatTime(record?.checkOutTime)} | ចូល: {formatTime(record?.checkInTime)}
         </p>
+        
+        {/* !! កែសម្រួល !!: បង្ហាញលេខកាត */}
+        {record.passNumber && (
+          <p className="text-sm font-semibold text-cyan-300">
+            (កាត: {record.passNumber})
+          </p>
+        )}
+        
         {isOvertime && (
           <p className="text-sm font-semibold text-red-300">
             (លើស {overtimeMins} នាទី)
@@ -258,6 +272,10 @@ const OnBreakStudentListCard = ({ student, record, elapsedMins, isOvertime, onCh
             </span>
           )}
         </p>
+        {/* !! កែសម្រួល !!: បង្ហាញលេខកាត */}
+        <p className="text-sm text-blue-200">
+          (កាត: {record.passNumber || '???'})
+        </p>
       </div>
       
       <div className="text-center px-2">
@@ -286,8 +304,8 @@ const OnBreakStudentListCard = ({ student, record, elapsedMins, isOvertime, onCh
   );
 };
 
-const PassesInfoPage = ({ studentsOnBreakCount, totalPasses }) => {
-    const passesInUse = studentsOnBreakCount;
+// !! កែសម្រួល !!: Page នេះត្រូវកែប្រែទាំងស្រុង
+const PassesInfoPage = ({ passesInUse, totalPasses, onEditTotal }) => {
     const passesAvailable = totalPasses - passesInUse;
     
     return (
@@ -316,10 +334,23 @@ const PassesInfoPage = ({ studentsOnBreakCount, totalPasses }) => {
             <p className="text-lg text-blue-200">សរុប</p>
           </div>
         </div>
+        
+        {/* !! ថ្មី !!: ប៊ូតុងកែសម្រួល */}
+        <div className="mt-8 border-t border-white/20 pt-6">
+          <button
+            onClick={onEditTotal}
+            className="flex items-center justify-center w-full px-4 py-3 rounded-full text-lg text-white font-bold transition-all shadow-lg bg-blue-500 hover:bg-blue-600"
+          >
+            <IconPencil />
+            កែសម្រួលចំនួនកាតសរុប
+          </button>
+        </div>
       </div>
     );
 };
 
+// ... (PasswordConfirmationModal, AdminActionModal, CompletedListHeader, LoadingSpinner, DeleteConfirmationModal)...
+// (សូមដាក់ Components ទាំងអស់របស់អ្នកនៅទីនេះ)
 const PasswordConfirmationModal = ({ prompt, onSubmit, onCancel }) => {
   if (!prompt.isOpen) return null;
   
@@ -528,3 +559,78 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
       </div>
     );
   };
+
+
+// !! ថ្មី !!: Component សម្រាប់ QR Scanner Modal
+const QrScannerModal = ({ isOpen, onClose, onScanSuccess }) => {
+  const [errorMessage, setErrorMessage] = useState(null);
+  
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage(null);
+      // ត្រូវប្រាកដថា ID នេះមានក្នុង HTML
+      const scannerId = "qr-reader"; 
+      
+      const html5QrCode = new Html5Qrcode(scannerId);
+      const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+        // decodedText គឺជាអ្វីដែល QR Code មាន (ឧ. 'DD_01')
+        html5QrCode.stop().then(() => {
+          onScanSuccess(decodedText);
+        }).catch(err => console.error("Error stopping scanner", err));
+      };
+      
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+      // ចាប់ផ្តើមស្កេន
+      html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
+        .catch(err => {
+          console.error("Unable to start scanner", err);
+          setErrorMessage("មិនអាចបើកកាមេរ៉ាបាន។ សូមអនុញ្ញាត (Allow) កាមេរ៉ា។");
+        });
+      
+      // Cleanup function
+      return () => {
+        // ត្រូវប្រាកដថា .stop() ត្រូវបានហៅ
+        html5QrCode.stop()
+          .then(res => {
+            console.log("QR Scanner stopped.");
+          })
+          .catch(err => {
+            console.warn("QR Scanner stop error, probably already stopped.", err);
+          });
+      };
+    }
+  }, [isOpen, onScanSuccess]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button 
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-800 bg-gray-200 p-2 rounded-full z-10"
+        >
+          <IconClose />
+        </button>
+        
+        <h3 className="text-2xl font-bold text-gray-900 mb-4 text-center">
+          ស្កេនកាតចូលវិញ
+        </h3>
+        
+        {/* ទីតាំងសម្រាប់បង្ហាញកាមេរ៉ា */}
+        <div id="qr-reader" className="w-full"></div>
+        
+        {errorMessage && (
+          <p className="text-red-500 text-center mt-4">{errorMessage}</p>
+        )}
+      </div>
+    </div>
+  );
+};
