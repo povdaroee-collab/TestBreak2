@@ -668,7 +668,6 @@ function App() {
               </span>
             </button>
             
-            {/* !! ថ្មី !!: ប្រើ handleOpenQrScanner ពេលចុច */}
             <button
               onClick={handleOpenQrScanner}
               className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative text-white`}
@@ -739,7 +738,7 @@ function App() {
                   attendance={attendance}
                   now={now}
                   handleCheckOut={handleCheckOut}
-                  handleCheckIn={handleCheckIn}
+                  handleCheckIn={handleOpenQrScanner} // !! កែសម្រួល !!: ហៅ QR Scanner
                   onDeleteClick={handleOpenDeleteModal_Simple}
                   totalPasses={totalPasses}
                 />
@@ -761,7 +760,7 @@ function App() {
                     record={record}
                     elapsedMins={elapsedMins} 
                     isOvertime={isOvertime}
-                    onCheckIn={() => handleCheckIn(student.id)} 
+                    onCheckIn={handleOpenQrScanner} // !! កែសម្រួល !!: ហៅ QR Scanner
                     onDeleteClick={(e) => handleOpenDeleteModal_Simple(e, student, record)}
                   />
                 ))
@@ -831,7 +830,7 @@ function App() {
                 attendance={attendance}
                 now={now}
                 handleCheckOut={handleCheckOut}
-                handleCheckIn={handleCheckIn}
+                handleCheckIn={handleOpenQrScanner} // !! កែសម្រួល !!: ហៅ QR Scanner
                 onDeleteClick={handleOpenDeleteModal_Simple}
                 totalPasses={totalPasses}
               />
@@ -869,7 +868,6 @@ function App() {
           setBulkDeleteMonth={setBulkDeleteMonth}
         />
         
-        {/* !! ថ្មី !!: Modal សម្រាប់ QR Scanner (បញ្ជូន Props ថ្មី) */}
         <QrScannerModal 
           isOpen={showQrScanner}
           onClose={() => setShowQrScanner(false)}
@@ -878,13 +876,11 @@ function App() {
           isScannerBusy={isScannerBusy}
         />
         
-        {/* Modal សម្រាប់ Alert ស្អាតៗ */}
         <InfoAlertModal
           alertInfo={infoAlert}
           onClose={() => setInfoAlert({ isOpen: false })}
         />
         
-        {/* Modal សម្រាប់ Prompt ស្អាតៗ */}
         <InputPromptModal
           promptInfo={inputPrompt}
           onCancel={inputPrompt.onCancel} 
