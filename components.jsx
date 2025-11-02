@@ -553,41 +553,31 @@ const DeleteConfirmationModal = ({ recordToDelete, onCancel, onConfirm }) => {
 
 
 // !! កែសម្រួល !!: Component សម្រាប់ QR Scanner Modal (Logic Cooldown ថ្មី)
-const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo }) => {
+const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo, isScannerBusy }) => { // 1. ទទួល Prop ថ្មី
   const [errorMessage, setErrorMessage] = useState(null);
   
   const html5QrCodeRef = React.useRef(null);
   const scannerStoppedRef = React.useRef(false);
   
-  // !! កែសម្រួល !!: ប្រើ Ref សម្រាប់ Cooldown
-  const isProcessingScan = React.useRef(false);
-
-  // !! លុប !!: លុប useEffect ដែលពឹងផ្អែកលើ lastScannedInfo ចេញ
+  // !! លុប !!: លុប isProcessingScan.current ចេញ
 
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
       scannerStoppedRef.current = false; 
-      isProcessingScan.current = false; // Reset Cooldown ពេលបើក Modal
       const scannerId = "qr-reader"; 
       
       const html5QrCode = new Html5Qrcode(scannerId);
       html5QrCodeRef.current = html5QrCode; 
       
       const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-        // បើកំពុងដំណើរការ Scan មុន, មិនអើពើ Scan ថ្មី
-        if (isProcessingScan.current) return; 
-        
-        isProcessingScan.current = true; // ចាប់ផ្តើម Cooldown
+        // !! កែសម្រួល !!: ប្រើ isScannerBusy ពី App.jsx
+        if (isScannerBusy) return; 
         
         // ហៅ Logic គោល (នៅក្នុង App.jsx)
         onScanSuccess(decodedText);
         
-        // !! ថ្មី !!: ប្រើ setTimeout Cooldown 3 វិនាទី
-        // នេះផ្តល់ពេលឱ្យ App.jsx update state របស់វា
-        setTimeout(() => {
-          isProcessingScan.current = false;
-        }, 3000); // 3 វិនាទី Cooldown
+        // !! លុប !!: លុប setTimeout Cooldown ចេញ
       };
       
       const config = { fps: 10, qrbox: { width: 250, height: 250 } };
@@ -639,18 +629,26 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo }) => 
         
         <div id="qr-reader" className="w-full"></div>
         
+        {/* !! ថ្មី !!: បង្ហាញ Loading ពេល isScannerBusy = true */}
         <div className="mt-4 text-center h-12">
-          {errorMessage && (
+          {isScannerBusy && (
+             <div className="flex justify-center items-center">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-blue-600 text-xl font-bold ml-3">កំពុងដំណើរការ...</p>
+             </div>
+          )}
+          
+          {!isScannerBusy && errorMessage && (
             <p className="text-red-500 text-lg font-bold">{errorMessage}</p>
           )}
           
-          {lastScannedInfo && lastScannedInfo.status === 'success' && (
+          {!isScannerBusy && lastScannedInfo && lastScannedInfo.status === 'success' && (
             <p className="text-green-600 text-xl font-bold animate-pulse">
               ✔ ស្កេនបាន: {lastScannedInfo.name}
             </p>
           )}
           
-          {lastScannedInfo && lastScannedInfo.status === 'fail' && (
+          {!isScannerBusy && lastScannedInfo && lastScannedInfo.status === 'fail' && (
             <p className="text-red-600 text-xl font-bold">
               ✖ {lastScannedInfo.message}
             </p>
@@ -753,3 +751,4 @@ const InputPromptModal = ({ promptInfo, onSubmit, onCancel }) => {
   );
 };
 
+ស
