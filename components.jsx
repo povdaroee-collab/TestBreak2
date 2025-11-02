@@ -562,14 +562,7 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo }) => 
   // !! កែសម្រួល !!: ប្រើ Ref សម្រាប់ Cooldown
   const isProcessingScan = React.useRef(false);
 
-  // !! ថ្មី !!: Reset Cooldown ពេល App បញ្ជូនលទ្ធផលថ្មីមក
-  useEffect(() => {
-    // ពេល lastScannedInfo ផ្លាស់ប្តូរ (មានន័យថា App បានដំណើរការរួច)
-    // យើង Reset Cooldown ឱ្យ Scanner ត្រៀមស្កេនបន្ត
-    if (lastScannedInfo) {
-      isProcessingScan.current = false;
-    }
-  }, [lastScannedInfo]); // ដំណើរការពេល lastScannedInfo ផ្លាស់ប្តូរ
+  // !! លុប !!: លុប useEffect ដែលពឹងផ្អែកលើ lastScannedInfo ចេញ
 
   useEffect(() => {
     if (isOpen) {
@@ -590,8 +583,11 @@ const QrScannerModal = ({ isOpen, onClose, onScanSuccess, lastScannedInfo }) => 
         // ហៅ Logic គោល (នៅក្នុង App.jsx)
         onScanSuccess(decodedText);
         
-        // !! លុប !!: មិនបាច់ dùng setTimeout ទៀតទេ
-        // App.jsx នឹងបញ្ជា Cooldown តាមរយៈ 'lastScannedInfo'
+        // !! ថ្មី !!: ប្រើ setTimeout Cooldown 3 វិនាទី
+        // នេះផ្តល់ពេលឱ្យ App.jsx update state របស់វា
+        setTimeout(() => {
+          isProcessingScan.current = false;
+        }, 3000); // 3 វិនាទី Cooldown
       };
       
       const config = { fps: 10, qrbox: { width: 250, height: 250 } };
