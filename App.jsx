@@ -39,6 +39,11 @@ function App() {
   const [totalPasses, setTotalPasses] = useState(0); // នឹងទាញពី Firebase
   const [showQrScanner, setShowQrScanner] = useState(false);
 
+  // !! ថ្មី !!: States សម្រាប់ Modals ស្អាតៗ
+  const [infoAlert, setInfoAlert] = useState({ isOpen: false, message: '', type: 'info' });
+  const [inputPrompt, setInputPrompt] = useState({ isOpen: false, title: '', message: '', defaultValue: '', onSubmit: null, onCancel: null });
+
+
   // --- មុខងារ TTS ---
   const speak = (text) => {
     try {
@@ -166,10 +171,10 @@ function App() {
           setAuthError(`Attendance Fetch Error: ${error.message}`);
       });
       
-      // !! ថ្មី !!: 3. ទាញចំនួនកាតសរុប (ពី dbWrite)
+      // 3. ទាញចំនួនកាតសរុប (ពី dbWrite)
       const passRef = ref(dbWrite, 'passManagement/totalPasses');
       const unsubscribePasses = onValue(passRef, (snapshot) => {
-        const total = snapshot.val() || 0; // បើមិនទាន់មាន, ឲ្យ 0
+        const total = snapshot.val() || 0; 
         setTotalPasses(total);
         console.log(`Total passes set to: ${total}`);
       }, (error) => {
@@ -180,16 +185,19 @@ function App() {
       return () => {
         unsubscribeStudents();
         unsubscribeAttendance();
-        unsubscribePasses(); // !! ថ្មី !!
+        unsubscribePasses();
       };
     }
   }, [dbRead, dbWrite, todayString]); 
 
-  // --- ត្រង (Filter) និស្សិត (ប្រើក្នុង Render) ---
-  // (sortedStudentsOnBreak ឥឡូវត្រូវย้ายចុះក្រោម ព្រោះវាត្រូវការព័ត៌មានថ្មី)
+  // !! ថ្មី !!: Helper function សម្រាប់ហៅ Alert
+  const showAlert = (message, type = 'info') => {
+    setInfoAlert({ isOpen: true, message, type });
+  };
   
   // --- Data Preparation for Render ---
-  // !! កែសម្រួល !!: ត្រូវរៀបចំទិន្នន័យនេះก่อน
+  // (ត្រូវគណនា Sorted List ទុកមុន ព្រោះ Handlers ខាងក្រោមត្រូវប្រើវា)
+  
   const sortedStudentsOnBreak = students
     .map(student => {
       const breaks = attendance[student.id] || [];
@@ -219,12 +227,10 @@ function App() {
   allCompletedBreaks.sort((a, b) => new Date(b.record.checkInTime) - new Date(a.record.checkInTime));
   
   const selectedStudent = students.find(s => s.id === selectedStudentId);
-  const studentsOnBreakCount = sortedStudentsOnBreak.length; // ប្រើចំនួននេះ
-
+  const studentsOnBreakCount = sortedStudentsOnBreak.length;
   
   // --- មុខងារសម្រាប់កត់ត្រា (ប្រើ dbWrite) ---
   
-  // !! កែសម្រួល !!: ត្រូវកែ Logic Check Out ទាំងស្រុង
   const handleCheckOut = async (studentId) => {
     const student = students.find(s => s.id === studentId);
     if (!student || !dbWrite) return;
@@ -236,19 +242,18 @@ function App() {
       return; 
     }
     
-    // 2. រកលេខកាតដែលទំនេរ
+    // 2. រកលេខកាតដែលទំនេរ (តាមសំណើ DD_01)
     const usedPassNumbers = sortedStudentsOnBreak.map(b => b.record.passNumber).filter(Boolean);
     let nextPassNumber = null;
-   for (let i = 1; i <= totalPasses; i++) {
-      const passNum = 'DD_' + String(i).padStart(2, '0');
+    for (let i = 1; i <= totalPasses; i++) {
+      const passNum = 'DD_' + String(i).padStart(2, '0'); // ប្រើ padStart 2
       if (!usedPassNumbers.includes(passNum)) {
         nextPassNumber = passNum;
-        break; 
+        break; // រកឃើញលេខកាត
       }
     }
     
     if (!nextPassNumber) {
-      // នេះមិនគួរកើតឡើងទេ បើការ Check ខាងលើត្រឹមត្រូវ
       console.error("Logic Error: Pass count check passed but no available pass found.");
       setAuthError("!!! ERROR: មានបញ្ហាក្នុងការរកលេខកាតទំនេរ។");
       return;
@@ -298,7 +303,6 @@ function App() {
        return;
     }
     
-    // ពេល Check-in លេខកាត (passNumber) នឹងទំនេរដោយស្វ័យប្រវត្តិ
     speak(`${student.name || 'និស្សិត'} បានចូលមកវិញ`);
         
     const now = new Date();
@@ -445,10 +449,13 @@ function App() {
       
       if (count > 0) {
         await update(ref(dbWrite), updates);
-        alert(`លុប ${count} record បានជោគជ័យ!`);
+        // !! កែសម្រួល !!: ប្រើ Modal ស្អាត
+        showAlert(`លុប ${count} record បានជោគជ័យ!`, 'success'); 
       } else {
-        alert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។");
+        // !! កែសម្រួល !!: ប្រើ Modal ស្អាត
+        showAlert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។", 'error');
       }
+      
     } catch (error) {
       console.error('Bulk Delete Error:', error);
       setAuthError(`Bulk Delete Error: ${error.message}`);
@@ -458,58 +465,64 @@ function App() {
     }
   };
   
-  // !! ថ្មី !!: មុខងារកែចំនួនកាត (Req 1)
+  // !! កែសម្រួល !!: មុខងារកែចំនួនកាត (Req 1)
   const handleEditTotalPasses = () => {
     handleOpenPasswordModal(
       "សូមបញ្ចូល Password ដើម្បីកែសម្រួលចំនួនកាតសរុប",
       () => {
-        // ពេល Password ត្រឹមត្រូវ
-        const newTotalString = window.prompt("សូមបញ្ចូលចំនួនកាតសរុបថ្មី:", totalPasses);
-        const newTotal = parseInt(newTotalString);
-        
-        if (newTotalString && !isNaN(newTotal) && newTotal >= 0) {
-          // រក្សាទុកទៅ Firebase
-          const passRef = ref(dbWrite, 'passManagement/totalPasses');
-          set(passRef, newTotal)
-            .then(() => {
-              alert("ចំនួនកាតសរុបបានកែប្រែ!");
-            })
-            .catch(err => {
-              setAuthError(`Error setting total passes: ${err.message}`);
-            });
-        } else if (newTotalString) {
-          alert("សូមបញ្ចូលតែตัวเลขប៉ុណ្ណោះ។");
-        }
+        // ពេល Password ត្រឹមត្រូវ, បើក Input Prompt ថ្មី
+        setInputPrompt({
+          isOpen: true,
+          title: 'កែសម្រួលចំនួនកាត',
+          message: 'សូមបញ្ចូលចំនួនកាតសរុបថ្មី:',
+          defaultValue: totalPasses,
+          // មុខងារពេលចុច OK
+          onSubmit: (newTotalString) => {
+            const newTotal = parseInt(newTotalString);
+            
+            if (newTotalString && !isNaN(newTotal) && newTotal >= 0) {
+              // រក្សាទុកទៅ Firebase
+              const passRef = ref(dbWrite, 'passManagement/totalPasses');
+              set(passRef, newTotal)
+                .then(() => {
+                  showAlert("ចំនួនកាតសរុបបានកែប្រែ!", 'success');
+                })
+                .catch(err => {
+                  setAuthError(`Error setting total passes: ${err.message}`);
+                });
+            } else if (newTotalString) {
+              showAlert("សូមបញ្ចូលតែตัวเลขប៉ុណ្ណោះ។", 'error');
+            }
+            setInputPrompt({ ...inputPrompt, isOpen: false }); // បិទ Prompt
+          },
+          // មុខងារពេលចុច Cancel
+          onCancel: () => setInputPrompt({ ...inputPrompt, isOpen: false })
+        });
       }
     );
   };
   
-  // !! ថ្មី !!: មុខងារ Check-in តាម QR (Req 3)
+  // !! កែសម្រួល !!: មុខងារ Check-in តាម QR (Req 3)
   const handleCheckInByPassNumber = (passNumber) => {
     if (!passNumber) {
-      alert("QR Code មិនត្រឹមត្រូវ។");
+      showAlert("QR Code មិនត្រឹមត្រូវ។", 'error');
       return;
     }
     
-    // 1. រកមើលអ្នកដែលកំពុងប្រើកាតនេះ
     const activeBreak = sortedStudentsOnBreak.find(b => b.record.passNumber === passNumber);
     
     if (activeBreak) {
-      // 2. បើរកឃើញ, ហៅ handleCheckIn
       const studentName = activeBreak.student.name || 'និស្សិត';
       console.log(`Scanning in ${studentName} with pass ${passNumber}`);
       handleCheckIn(activeBreak.student.id);
       
-      // បិទ Modal Scanner
       setShowQrScanner(false);
-      
-      // ត្រឡប់ទៅទំព័រ 'កំពុងសម្រាក' ដើម្បីមើលលទ្ធផល
       setCurrentPage('onBreak');
       
     } else {
-      // 3. បើរកមិនឃើញ
-      alert(`រកមិនឃើញអ្នកកំពុងប្រើកាត ${passNumber} ទេ។\nប្រហែលគាត់បានចូលវិញហើយ។`);
-      setShowQrScanner(false); // បិទ Modal តែរក្សាទុក Error
+      // !! កែសម្រួល !!: ប្រើ Modal ស្អាត
+      showAlert(`រកមិនឃើញអ្នកកំពុងប្រើកាត ${passNumber} ទេ។\nប្រហែលគាត់បានចូលវិញហើយ។`, 'error');
+      setShowQrScanner(false); 
     }
   };
 
@@ -664,7 +677,7 @@ function App() {
                             onMouseDown={() => handleSelectStudentFromList(student)}
                           >
                             <img
-                              src={student.photoUrl || `https://placehold.co/40x40/EBF4FF/76A9FA?text=${student.name ? student.name.charAt(0) : 'N'}`}
+                              src={student.photoUrl || `https:
                               className="w-10 h-10 rounded-full object-cover"
                             />
                             <div>
@@ -683,13 +696,13 @@ function App() {
                 <StudentCard 
                   student={selectedStudent} 
                   pageKey="search"
-                  passesInUse={studentsOnBreakCount} // !! កែសម្រួល !!
+                  passesInUse={studentsOnBreakCount}
                   attendance={attendance}
                   now={now}
                   handleCheckOut={handleCheckOut}
                   handleCheckIn={handleCheckIn}
                   onDeleteClick={handleOpenDeleteModal_Simple}
-                  totalPasses={totalPasses} // !! ថ្មី !!
+                  totalPasses={totalPasses}
                 />
               )}
               {!selectedStudent && searchTerm !== "" && searchResults.length === 0 && isSearchFocused && (
@@ -752,7 +765,7 @@ function App() {
             </div>
           )}
           
-          {/* --- PAGE 4: កាតចេញចូល (!! កែសម្រួល !!) --- */}
+          {/* --- PAGE 4: កាតចេញចូល --- */}
           {!loading && currentPage === 'passes' && (
             <div key="passes-page" className="pb-10">
               <PassesInfoPage 
@@ -781,7 +794,7 @@ function App() {
                 handleCheckOut={handleCheckOut}
                 handleCheckIn={handleCheckIn}
                 onDeleteClick={handleOpenDeleteModal_Simple}
-                totalPasses={totalPasses} // !! ថ្មី !!
+                totalPasses={totalPasses}
               />
               <button onClick={() => setModalStudent(null)} className="absolute top-4 right-4 text-white bg-white/10 p-2 rounded-full transition-all hover:bg-white/30">
                 <IconClose />
@@ -817,11 +830,23 @@ function App() {
           setBulkDeleteMonth={setBulkDeleteMonth}
         />
         
-        {/* !! ថ្មី !!: Modal សម្រាប់ QR Scanner */}
         <QrScannerModal 
           isOpen={showQrScanner}
           onClose={() => setShowQrScanner(false)}
           onScanSuccess={handleCheckInByPassNumber}
+        />
+        
+        {/* !! ថ្មី !!: Modal សម្រាប់ Alert ស្អាតៗ */}
+        <InfoAlertModal
+          alertInfo={infoAlert}
+          onClose={() => setInfoAlert({ isOpen: false, message: '', type: 'info' })}
+        />
+        
+        {/* !! ថ្មី !!: Modal សម្រាប់ Prompt ស្អាតៗ */}
+        <InputPromptModal
+          promptInfo={inputPrompt}
+          onCancel={() => inputPrompt.onCancel ? inputPrompt.onCancel() : setInputPrompt({ isOpen: false })}
+          onSubmit={(value) => inputPrompt.onSubmit ? inputPrompt.onSubmit(value) : setInputPrompt({ isOpen: false })}
         />
         
       </div>
