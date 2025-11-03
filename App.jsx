@@ -38,15 +38,24 @@ function App() {
   // States សម្រាប់ចំនួនកាត
   const [totalPasses, setTotalPasses] = useState(0); 
 
-  // !! ថ្មី !!: States សម្រាប់ QR Scanner ឆ្លាតវៃ
+  // States សម្រាប់ QR Scanner ឆ្លាតវៃ
   const [showQrScanner, setShowQrScanner] = useState(false);
-  const [isScannerBusy, setIsScannerBusy] = useState(false); // គ្រប់គ្រងការ Stop/Start
-  const [lastScannedInfo, setLastScannedInfo] = useState(null); // បង្ហាញ Success/Fail
-  const [scannerTriggeredCheckIn, setScannerTriggeredCheckIn] = useState(null); // ចាំ Check-in
+  const [isScannerBusy, setIsScannerBusy] = useState(false); 
+  const [lastScannedInfo, setLastScannedInfo] = useState(null); 
+  const [scannerTriggeredCheckIn, setScannerTriggeredCheckIn] = useState(null); 
 
   // States សម្រាប់ Modals ស្អាតៗ
   const [infoAlert, setInfoAlert] = useState({ isOpen: false, message: '', type: 'info' });
   const [inputPrompt, setInputPrompt] = useState({ isOpen: false });
+
+  // --- States សម្រាប់ Settings Page ---
+  const [language, setLanguage] = useState(localStorage.getItem('break_lang') || 'km');
+  const [background, setBackground] = useState(localStorage.getItem('break_bg') || 'style1');
+  const [adminPassword, setAdminPassword] = useState('4545ak0'); // Default (នឹងត្រូវបានទាញពី Firebase)
+  const [checkInMode, setCheckInMode] = useState('scan'); // Default (នឹងត្រូវបានទាញពី Firebase)
+  
+  // Object បកប្រែភាសា
+  const t = translations[language] || translations['km'];
 
   // --- មុខងារ TTS ---
   const speak = (text) => {
@@ -65,13 +74,23 @@ function App() {
     }
   };
 
-  // Effect សម្រាប់ Timer (1 វិនាទី)
+  // --- Effects ---
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
     }, 1000); 
     return () => clearInterval(timer);
   }, []); 
+
+  // Effect សម្រាប់រក្សាទុក Settings (Local)
+  useEffect(() => {
+    localStorage.setItem('break_lang', language);
+  }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem('break_bg', background);
+  }, [background]);
+
 
   // ជំហានទី 1: ដំណើរការ Firebase ទាំងពីរ
   useEffect(() => {
@@ -168,7 +187,7 @@ function App() {
           for (const studentId in attMap) {
             attMap[studentId].sort((a, b) => new Date(a.checkOutTime) - new Date(b.checkOutTime));
           }
-          setAttendance(attMap); // <--- !! ទីតាំងសំខាន់ !!
+          setAttendance(attMap); 
           console.log("Attendance data fetched/updated.");
       }, (error) => {
           console.error('Attendance Fetch Error (dbWrite):', error);
@@ -183,19 +202,43 @@ function App() {
         console.log(`Total passes set to: ${total}`);
       }, (error) => {
         console.error('Total Passes Fetch Error (dbWrite):', error);
-        setAuthError(`Total Passes Fetch Error: ${error.message}`);
+      });
+      
+      // 4. ទាញ Password (ពី dbWrite)
+      const passwordRef = ref(dbWrite, 'passManagement/adminPassword');
+      const unsubscribePassword = onValue(passwordRef, (snapshot) => {
+        const pass = snapshot.val();
+        if (pass) {
+          setAdminPassword(pass);
+          console.log("Admin password fetched.");
+        }
+      }, (error) => {
+        console.error('Admin Password Fetch Error (dbWrite):', error);
+      });
+      
+      // 5. ទាញ របៀប Check-in (ពី dbWrite)
+      const checkInModeRef = ref(dbWrite, 'passManagement/checkInMode');
+      const unsubscribeCheckInMode = onValue(checkInModeRef, (snapshot) => {
+        const mode = snapshot.val();
+        if (mode) {
+          setCheckInMode(mode);
+          console.log(`Check-in mode set to: ${mode}`);
+        }
+      }, (error) => {
+        console.error('Check-in Mode Fetch Error (dbWrite):', error);
       });
       
       return () => {
         unsubscribeStudents();
         unsubscribeAttendance();
         unsubscribePasses(); 
+        unsubscribePassword();
+        unsubscribeCheckInMode();
       };
     }
   }, [dbRead, dbWrite, todayString]); 
 
   // --- Data Preparation for Render ---
-  // (ត្រូវគណនាទិន្នន័យនេះ មុនពេលប្រើក្នុង Functions)
   const sortedStudentsOnBreak = students
     .map(student => {
       const breaks = attendance[student.id] || [];
@@ -228,12 +271,10 @@ function App() {
   const studentsOnBreakCount = sortedStudentsOnBreak.length;
   
   
-  // !! ថ្មី !!: Effect សម្រាប់គ្រប់គ្រង Scanner បន្ទាប់ពី Firebase Update
+  // Effect សម្រាប់គ្រប់គ្រង Scanner បន្ទាប់ពី Firebase Update
   useEffect(() => {
-    // 1. ពិនិត្យមើលថា តើការ Update នេះ គឺដោយសារ Scanner មែនទេ?
     if (scannerTriggeredCheckIn) {
       
-      // 2. គណនាចំនួនអ្នកសម្រាក *ថ្មី* (បន្ទាប់ពី attendance បាន update)
       const newStudentsOnBreak = students
         .map(student => {
           const breaks = attendance[student.id] || [];
@@ -244,23 +285,20 @@ function App() {
       const newCount = newStudentsOnBreak.length;
       console.log(`Scanner triggered check-in. New break count: ${newCount}`);
       
-      // 3. សម្រេចចិត្តថាត្រូវបិទ Modal ឬ បន្ត Scan
       if (newCount === 0) {
-        // បើអស់អ្នកសម្រាក -> បិទ Modal
         console.log("Last student checked in. Closing scanner.");
         setShowQrScanner(false);
-        setCurrentPage('completed'); // ទៅទំព័រ "បានចូល"
-        setIsScannerBusy(false); // Reset
-        setScannerTriggeredCheckIn(null); // Reset
+        setCurrentPage('completed'); 
+        setIsScannerBusy(false); 
+        setScannerTriggeredCheckIn(null); 
         
       } else {
-        // បើនៅសល់អ្នកសម្រាក -> បើកកាមេរ៉ាវិញ
         console.log("Students still on break. Restarting scanner...");
-        setIsScannerBusy(false); // <--- នេះនឹងធ្វើឱ្យកាមេរ៉ាបើកវិញ
-        setScannerTriggeredCheckIn(null); // Reset
+        setIsScannerBusy(false); 
+        setScannerTriggeredCheckIn(null); 
       }
     }
-  }, [attendance]); // <--- ដំណើរការរាល់ពេលទិន្នន័យ Firebase ផ្លាស់ប្តូរ
+  }, [attendance]); 
 
 
   // --- Helper function សម្រាប់ហៅ Alert ---
@@ -275,8 +313,8 @@ function App() {
     if (!student || !dbWrite) return;
         
     if (studentsOnBreakCount >= totalPasses) {
-      setAuthError(`!!! ERROR: កាតចេញសម្រាកអស់ហើយ! (${studentsOnBreakCount}/${totalPasses})`);
-      speak("កាតចេញសម្រាកអស់ហើយ");
+      setAuthError(`${t.statusPassOut} (${studentsOnBreakCount}/${totalPasses})`);
+      speak(t.statusPassOut);
       return; 
     }
     
@@ -302,7 +340,7 @@ function App() {
     const breakCount = completedBreaks.length;
     let breakType = (breakCount >= 2) ? "special" : "normal";
     
-    speak(`${student.name || 'និស្សិត'} បានចេញក្រៅ ដោយប្រើកាត ${nextPassNumber}`);
+    speak(`${student.name || t.noName} ${t.statusOnBreak} ${t.statusPass} ${nextPassNumber}`);
     
     const attendanceRef = ref(dbWrite, 'attendance');
     const newRecordRef = push(attendanceRef);
@@ -326,7 +364,6 @@ function App() {
     }
   };
   
-  // !! កែសម្រួល !!: handleCheckIn ត្រូវតែជា Async
   const handleCheckIn = async (studentId) => {
     const student = students.find(s => s.id === studentId);
     if (!student || !dbWrite) {
@@ -342,19 +379,16 @@ function App() {
        return;
     }
     
-    speak(`${student.name || 'និស្សិត'} បានចូលមកវិញ`);
+    speak(`${student.name || t.noName} ${t.checkIn}`);
         
     const now = new Date();
     const docId = activeBreak.id; 
     const docRef = ref(dbWrite, `attendance/${docId}`);
     try {
-      // មុខងារនេះ នឹង Trigger `onValue` របស់ `attendance`
       await update(docRef, { 
         checkInTime: now.toISOString(),
       });
       console.log(`Check-in update sent for ${student.name}`);
-      
-      // មិនត្រូវបិទ Modal ឬ set Page នៅទីនេះទេ (useEffect នឹងធ្វើវា)
       
       setSearchTerm(''); 
       setSelectedStudentId(''); 
@@ -364,7 +398,6 @@ function App() {
     } catch (error) {
       console.error('Check-in Error (dbWrite):', error);
       setAuthError(`Check-in Error: ${error.message}`);
-      // បើបរាជ័យ, ត្រូវ Reset scanner
       setIsScannerBusy(false); 
       setScannerTriggeredCheckIn(null);
     }
@@ -387,11 +420,11 @@ function App() {
   };
   
   const handlePasswordSubmit = (password) => {
-    if (password === USER_PASSWORD) {
+    if (password === adminPassword) {
       passwordPrompt.onConfirm();
       setPasswordPrompt({ isOpen: false });
     } else {
-      setPasswordPrompt(prev => ({ ...prev, error: "Password មិនត្រឹមត្រូវ!" }));
+      setPasswordPrompt(prev => ({ ...prev, error: t.passwordError }));
     }
   };
   
@@ -424,7 +457,7 @@ function App() {
   const handleOpenDeleteSelected = () => {
     if (selectedRecords.length === 0) return;
     handleOpenPasswordModal(
-      `តើអ្នកប្រាកដទេថាចង់លុប ${selectedRecords.length} record ដែលបានជ្រើសរើស?`,
+      t.deleteSelectedTitle(selectedRecords.length),
       () => handleConfirmDelete_Multi()
     );
   };
@@ -451,8 +484,8 @@ function App() {
     setTimeout(() => {
       handleOpenPasswordModal(
         mode === 'day' 
-          ? `លុបទិន្នន័យតាមថ្ងៃ (${bulkDeleteDate})?` 
-          : `លុបទិន្នន័យតាមខែ (${bulkDeleteMonth})?`,
+          ? t.deleteByDateTitle(bulkDeleteDate)
+          : t.deleteByMonthTitle(bulkDeleteMonth),
         () => handleConfirmBulkDelete(mode)
       );
     }, 100);
@@ -467,7 +500,7 @@ function App() {
       const attendanceRef = ref(dbWrite, 'attendance');
       const allDataSnapshot = await get(attendanceRef);
       if (!allDataSnapshot.exists()) {
-        showAlert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។", 'error');
+        showAlert(t.deleteNotFound, 'error');
         setIsBulkLoading(false);
         return;
       }
@@ -493,9 +526,9 @@ function App() {
       
       if (count > 0) {
         await update(ref(dbWrite), updates);
-        showAlert(`លុប ${count} record បានជោគជ័យ!`, 'success'); 
+        showAlert(t.deleteSuccess(count), 'success'); 
       } else {
-        showAlert("រកមិនឃើញទិន្នន័យសម្រាប់លុបទេ។", 'error');
+        showAlert(t.deleteNotFound, 'error');
       }
     } catch (error) {
       console.error('Bulk Delete Error:', error);
@@ -506,28 +539,31 @@ function App() {
     }
   };
   
+  // --- មុខងារ Settings ថ្មី ---
+  
   const handleEditTotalPasses = () => {
     handleOpenPasswordModal(
-      "សូមបញ្ចូល Password ដើម្បីកែសម្រួលចំនួនកាតសរុប",
+      t.passwordRequired,
       () => {
         setInputPrompt({
           isOpen: true,
-          title: 'កែសម្រួលចំនួនកាត',
-          message: 'សូមបញ្ចូលចំនួនកាតសរុបថ្មី:',
+          title: t.editPassTotal,
+          message: t.editPassTotalPrompt,
           defaultValue: totalPasses,
+          type: 'number',
           onSubmit: (newTotalString) => {
             const newTotal = parseInt(newTotalString);
             if (newTotalString && !isNaN(newTotal) && newTotal >= 0) {
               const passRef = ref(dbWrite, 'passManagement/totalPasses');
               set(passRef, newTotal)
                 .then(() => {
-                  showAlert("ចំនួនកាតសរុបបានកែប្រែ!", 'success');
+                  showAlert(t.passTotalSuccess, 'success');
                 })
                 .catch(err => {
                   setAuthError(`Error setting total passes: ${err.message}`);
                 });
             } else if (newTotalString) {
-              showAlert("សូមបញ្ចូលតែตัวเลขប៉ុណ្ណោះ។", 'error');
+              showAlert(t.invalidNumber, 'error');
             }
             setInputPrompt({ isOpen: false }); 
           },
@@ -537,54 +573,127 @@ function App() {
     );
   };
   
-  // !! កែសម្រួល !!: មុខងារ Check-in តាម QR (Logic ថ្មី)
+  const handleEditPassword = () => {
+    handleOpenPasswordModal(
+      t.passwordRequired, // បញ្ចូល Password ចាស់
+      () => {
+        // បើ Password ចាស់ត្រូវ -> បើក Prompt សួរ Password ថ្មី
+        setInputPrompt({
+          isOpen: true,
+          title: t.changePassword,
+          message: t.changePasswordPrompt,
+          defaultValue: '',
+          type: 'text',
+          onSubmit: (newPassword) => {
+            if (newPassword && newPassword.length >= 6) {
+              const passRef = ref(dbWrite, 'passManagement/adminPassword');
+              set(passRef, newPassword)
+                .then(() => {
+                  showAlert(t.changePasswordSuccess, 'success');
+                })
+                .catch(err => {
+                  setAuthError(`Error setting password: ${err.message}`);
+                });
+            } else if (newPassword) {
+              showAlert("Password ត្រូវមានយ៉ាងតិច 6 តួអក្សរ", 'error');
+            }
+            setInputPrompt({ isOpen: false }); 
+          },
+          onCancel: () => setInputPrompt({ isOpen: false })
+        });
+      }
+    );
+  };
+
+  const handleEditCheckInMode = () => {
+    handleOpenPasswordModal(
+      t.checkInMethodPrompt,
+      () => {
+        // បើ Password ត្រូវ -> ប្តូរ Mode
+        const newMode = checkInMode === 'scan' ? 'auto' : 'scan';
+        const modeRef = ref(dbWrite, 'passManagement/checkInMode');
+        set(modeRef, newMode)
+          .then(() => {
+            showAlert(t.checkInModeSuccess, 'success');
+          })
+          .catch(err => {
+            setAuthError(`Error setting check-in mode: ${err.message}`);
+          });
+      }
+    );
+  };
+  
+  // មុខងារ Check-in តាម QR (Logic ថ្មី)
   const handleCheckInByPassNumber = (passNumber) => {
-    if (!passNumber || isScannerBusy) { // បើ Busy គឺមិនអោយ Scan ស្ទួន
+    if (!passNumber || isScannerBusy) { 
       return;
     }
     
-    // 1. រកមើលអ្នកដែលកំពុងប្រើកាតនេះ (ពី State `attendance` បច្ចុប្បន្ន)
     const activeBreak = sortedStudentsOnBreak.find(b => b.record.passNumber === passNumber);
     
     if (activeBreak) {
-      // 2. បើរកឃើញ -> បញ្ឈប់កាមេរ៉ា (Busy) ហើយរៀបចំ Check-in
       setIsScannerBusy(true); 
-      setScannerTriggeredCheckIn(activeBreak.student.id); // ចាំចាប់ Update
-      setLastScannedInfo({ status: 'success', name: activeBreak.student.name || 'និស្សិត' });
+      setScannerTriggeredCheckIn(activeBreak.student.id); 
+      setLastScannedInfo({ status: 'success', name: activeBreak.student.name || t.noName });
       
-      // 3. ហៅ handleCheckIn (ដែលនឹង Update Firebase)
       handleCheckIn(activeBreak.student.id);
       
     } else {
-      // 4. បើរកមិនឃើញ (ប្រហែល Scan រួចហើយ)
-      setLastScannedInfo({ status: 'fail', message: `កាត ${passNumber} បានចូលវិញហើយ` });
+      setLastScannedInfo({ status: 'fail', message: t.scanPassNotFound(passNumber) });
     }
   };
   
-  // !! ថ្មី !!: មុខងារសម្រាប់បើក QR Scanner
+  // មុខងារសម្រាប់បើក QR Scanner
   const handleOpenQrScanner = () => {
     setLastScannedInfo(null);
     setScannerTriggeredCheckIn(null);
-    setIsScannerBusy(false); // ត្រូវប្រាកដថាមិន Busy ពេលបើកដំបូង
+    setIsScannerBusy(false); 
     setShowQrScanner(true);
   };
 
   
   // --- Search Handlers ---
   
+  // !! កែសម្រួល !!: បន្ថែម Status ទៅក្នុងលទ្ធផលស្វែងរក
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchTerm(value);
     setSelectedStudentId(""); 
+    
     const normalizedSearch = String(value).replace(/\s+/g, '').toLowerCase();
+
     if (normalizedSearch === "") {
       setSearchResults([]); 
     } else {
+      // 1. ស្វែងរក
       const matches = students.filter(student => 
         (student.name && student.name.replace(/\s+/g, '').toLowerCase().includes(normalizedSearch)) ||
         (student.idNumber && String(student.idNumber).replace(/\s+/g, '').includes(normalizedSearch))
       ).slice(0, 10); 
-      setSearchResults(matches);
+      
+      // 2. បន្ថែម Status ពី attendance (Realtime)
+      const matchesWithStatus = matches.map(student => {
+        const studentBreaks = attendance[student.id] || [];
+        const activeBreak = studentBreaks.find(r => r.checkOutTime && !r.checkInTime);
+        const completedBreaks = studentBreaks.filter(r => r.checkOutTime && r.checkInTime);
+
+        let statusText = t.statusNotYet;
+        let passNumber = null;
+        let statusColor = 'text-gray-500';
+
+        if (activeBreak) {
+          statusText = t.statusOnBreak;
+          passNumber = activeBreak.passNumber || null;
+          statusColor = 'text-yellow-600'; // ពណ៌កំពុងសម្រាក
+        } else if (completedBreaks.length > 0) {
+          statusText = t.statusCompleted;
+          statusColor = 'text-green-600'; // ពណ៌សម្រាករួច
+        }
+        
+        return { ...student, statusText, passNumber, statusColor };
+      });
+      
+      setSearchResults(matchesWithStatus); // 3. រក្សាទុកលទ្ធផលថ្មី
     }
   };
   
@@ -599,14 +708,14 @@ function App() {
   // --- Main Render ---
   return (
     <React.Fragment>
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 to-indigo-700 font-kantumruy p-4">
+      <div className={`min-h-screen ${backgroundStyles[background] || backgroundStyles['style1']} font-kantumruy p-4 transition-all duration-500`}>
         <div className="container mx-auto max-w-lg relative">
           
           <div 
             className={`transition-all duration-300 ease-in-out ${isSearchFocused ? '-translate-y-24' : 'translate-y-0'}`}
           >
             <h1 className="text-4xl font-bold text-center mb-2 text-white">
-              កត់ត្រាម៉ោងសម្រាក
+              {t.appTitle}
             </h1>
             <p className="text-xl text-center text-blue-200 mb-6">
               {displayDate}
@@ -658,22 +767,22 @@ function App() {
             </button>
             
             <button
-              onClick={() => setCurrentPage('passes')}
-              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
-                currentPage === 'passes' ? 'bg-white text-blue-800 shadow-lg' : 'text-white'
-              }`}
-            >
-              <span className="relative z-10 flex items-center">
-                <IconTicket />
-              </span>
-            </button>
-            
-            <button
               onClick={handleOpenQrScanner}
               className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative text-white`}
             >
               <span className="relative z-10 flex items-center">
                 <IconQrCode />
+              </span>
+            </button>
+            
+            <button
+              onClick={() => setCurrentPage('settings')}
+              className={`w-1/5 px-2 py-3 rounded-full flex items-center justify-center transition-colors relative ${
+                currentPage === 'settings' ? 'bg-white text-blue-800 shadow-lg' : 'text-white'
+              }`}
+            >
+              <span className="relative z-10 flex items-center">
+                <IconSettings />
               </span>
             </button>
             
@@ -703,12 +812,14 @@ function App() {
                       onFocus={() => { setIsSearchFocused(true); setAuthError(null); }}
                       onBlur={() => { setTimeout(() => { if (!document.activeElement.classList.contains('search-result-button')) { setIsSearchFocused(false); setSearchResults([]); } }, 200); }}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); setIsSearchFocused(false); } }}
-                      placeholder="ស្វែងរកអត្តលេខ/ឈ្មោះ" 
+                      placeholder={t.searchPlaceholder} 
                       className="block w-full px-6 py-4 bg-white/20 border border-white/30 rounded-full text-white text-lg placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white shadow-inner"
                     />
+                    
+                    {/* !! កែសម្រួល !!: បង្ហាញ Status ក្នុងលទ្ធផលស្វែងរក */}
                     {isSearchFocused && searchResults.length > 0 && (
                       <div className="absolute z-10 w-full max-w-md mt-2 bg-white/90 backdrop-blur-lg rounded-2xl shadow-lg max-h-80 overflow-y-auto">
-                        {searchResults.map(student => (
+                        {searchResults.map(student => ( 
                           <button
                             key={student.id}
                             className="search-result-button flex items-center w-full p-3 space-x-3 text-left text-gray-800 hover:bg-blue-100 first:rounded-t-2xl last:rounded-b-2xl"
@@ -718,16 +829,26 @@ function App() {
                               src={student.photoUrl || `https://placehold.co/40x40/EBF4FF/76A9FA?text=${student.name ? student.name.charAt(0) : 'N'}`}
                               className="w-10 h-10 rounded-full object-cover"
                             />
-                            <div>
+                            <div className="flex-1">
                               <p className="font-bold">{student.name}</p>
                               <p className="text-sm text-gray-600">{student.idNumber}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-semibold ${student.statusColor}`}>
+                                {student.statusText}
+                              </p>
+                              {student.passNumber && (
+                                <p className="text-xs text-blue-600 font-bold">
+                                  {t.statusPass}: {student.passNumber}
+                                </p>
+                              )}
                             </div>
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
-                ) : ( !authError && <p className="text-gray-300 text-lg text-center">មិនមានទិន្នន័យនិស្សិត...</p> )}
+                ) : ( !authError && <p className="text-gray-300 text-lg text-center">{t.studentNotFound}</p> )}
               </div>
               
               {selectedStudent && (
@@ -738,13 +859,16 @@ function App() {
                   attendance={attendance}
                   now={now}
                   handleCheckOut={handleCheckOut}
-                  handleCheckIn={handleOpenQrScanner} // !! កែសម្រួល !!: ហៅ QR Scanner
+                  handleCheckIn={handleCheckIn} 
+                  handleOpenQrScanner={handleOpenQrScanner}
                   onDeleteClick={handleOpenDeleteModal_Simple}
                   totalPasses={totalPasses}
+                  t={t}
+                  checkInMode={checkInMode}
                 />
               )}
               {!selectedStudent && searchTerm !== "" && searchResults.length === 0 && isSearchFocused && (
-                <p className="text-center text-white/70 text-lg mt-10">រកមិនឃើញនិស្សិត...</p>
+                <p className="text-center text-white/70 text-lg mt-10">{t.studentNotFound}</p>
               )}
             </div>
           )}
@@ -760,13 +884,16 @@ function App() {
                     record={record}
                     elapsedMins={elapsedMins} 
                     isOvertime={isOvertime}
-                    onCheckIn={handleOpenQrScanner} // !! កែសម្រួល !!: ហៅ QR Scanner
+                    onCheckIn={() => handleCheckIn(student.id)} 
+                    handleOpenQrScanner={handleOpenQrScanner}
                     onDeleteClick={(e) => handleOpenDeleteModal_Simple(e, student, record)}
+                    t={t}
+                    checkInMode={checkInMode}
                   />
                 ))
               ) : (
                 <div className="mt-16 text-center">
-                  <p className="text-white text-2xl font-semibold">មិនមាននិស្សិតកំពុងសម្រាកទេ</p>
+                  <p className="text-white text-2xl font-semibold">{t.noStudentsOnBreak}</p>
                 </div>
               )}
             </div>
@@ -781,6 +908,7 @@ function App() {
                 onCancelMultiSelect={handleToggleSelectionMode}
                 selectionCount={selectedRecords.length}
                 isSelectionMode={isSelectionMode}
+                t={t}
               />
               {allCompletedBreaks.length > 0 ? (
                 allCompletedBreaks.map(({ student, record }) => (
@@ -791,31 +919,38 @@ function App() {
                     onClick={() => !isSelectionMode && null} 
                     isSelected={selectedRecords.includes(record.id)}
                     onSelect={() => handleRecordSelect(record.id)}
-                    onDeleteClick={(e) => handleOpenPasswordModal(`លុប Record របស់ (${student.name})?`, () => handleConfirmDelete_Single(record.id))}
+                    onDeleteClick={(e) => handleOpenPasswordModal(t.deleteConfirmMessage(student.name), () => handleConfirmDelete_Single(record.id))}
                     isSelectionMode={isSelectionMode}
+                    t={t}
                   />
                 ))
               ) : (
                 <div className="mt-16 text-center">
-                  <p className="text-white text-2xl font-semibold">មិនមាននិស្សិតសម្រាករួចទេ</p>
+                  <p className="text-white text-2xl font-semibold">{t.noStudentsCompleted}</p>
                 </div>
               )}
             </div>
           )}
           
-          {/* --- PAGE 4: កាតចេញចូល --- */}
-          {!loading && currentPage === 'passes' && (
-            <div key="passes-page" className="pb-10">
-              <PassesInfoPage 
-                passesInUse={studentsOnBreakCount} 
-                totalPasses={totalPasses}
-                onEditTotal={handleEditTotalPasses} 
-              />
-            </div>
+          {/* --- PAGE 5: Settings --- */}
+          {!loading && currentPage === 'settings' && (
+            <SettingsPage
+              t={t}
+              language={language}
+              setLanguage={setLanguage}
+              background={background}
+              setBackground={setBackground}
+              checkInMode={checkInMode}
+              onEditCheckInMode={handleEditCheckInMode}
+              onEditPassword={handleEditPassword}
+              passesInUse={studentsOnBreakCount}
+              totalPasses={totalPasses}
+              onEditTotalPasses={handleEditTotalPasses}
+            />
           )}
           
           {!loading && (
-             <p className="text-center text-xs text-blue-300 opacity-70 mt-8">អភិវឌ្ឍន៍កម្មវិធី : IT SUPPORT</p>
+             <p className="text-center text-xs text-blue-300 opacity-70 mt-8">{t.footer}</p>
            )}
         </div>
         
@@ -830,9 +965,12 @@ function App() {
                 attendance={attendance}
                 now={now}
                 handleCheckOut={handleCheckOut}
-                handleCheckIn={handleOpenQrScanner} // !! កែសម្រួល !!: ហៅ QR Scanner
+                handleCheckIn={handleCheckIn}
+                handleOpenQrScanner={handleOpenQrScanner}
                 onDeleteClick={handleOpenDeleteModal_Simple}
                 totalPasses={totalPasses}
+                t={t}
+                checkInMode={checkInMode}
               />
               <button onClick={() => setModalStudent(null)} className="absolute top-4 right-4 text-white bg-white/10 p-2 rounded-full transition-all hover:bg-white/30">
                 <IconClose />
@@ -848,12 +986,14 @@ function App() {
             handleConfirmDelete_Single(recordToDelete.record.id);
             setRecordToDelete(null);
           }}
+          t={t}
         />
         
         <PasswordConfirmationModal 
           prompt={passwordPrompt}
           onCancel={() => setPasswordPrompt({ isOpen: false })}
           onSubmit={handlePasswordSubmit}
+          t={t}
         />
         
         <AdminActionModal 
@@ -866,6 +1006,7 @@ function App() {
           setBulkDeleteDate={setBulkDeleteDate}
           bulkDeleteMonth={bulkDeleteMonth}
           setBulkDeleteMonth={setBulkDeleteMonth}
+          t={t}
         />
         
         <QrScannerModal 
@@ -874,17 +1015,20 @@ function App() {
           onScanSuccess={handleCheckInByPassNumber}
           lastScannedInfo={lastScannedInfo}
           isScannerBusy={isScannerBusy}
+          t={t}
         />
         
         <InfoAlertModal
           alertInfo={infoAlert}
           onClose={() => setInfoAlert({ isOpen: false })}
+          t={t}
         />
         
         <InputPromptModal
           promptInfo={inputPrompt}
           onCancel={inputPrompt.onCancel} 
           onSubmit={inputPrompt.onSubmit}
+          t={t}
         />
         
       </div>
